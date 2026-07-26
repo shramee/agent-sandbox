@@ -9,7 +9,7 @@ ARG USER_NAME=agent
 ENV HOME="/home/${USER_NAME}" \
     PNPM_HOME="/home/${USER_NAME}/.local/share/pnpm" \
     GOPATH="/home/${USER_NAME}/go"
-ENV PATH="$PNPM_HOME/bin:$GOPATH/bin:/home/${USER_NAME}/.foundry/bin:/usr/local/go/bin:${PATH}"
+ENV PATH="$PNPM_HOME/bin:$GOPATH/bin:${HOME}/.local/bin:${HOME}/.foundry/bin:/usr/local/go/bin:${PATH}"
 
 # --- Install base dependencies ---
 RUN apt-get update && apt-get install -y \
@@ -29,8 +29,9 @@ RUN curl -fsSL https://foundry.paradigm.xyz | bash \
 # --- pnpm + Claude Code CLI ---
 RUN corepack enable \
     && corepack prepare pnpm@latest --activate \
-    && pnpm i -g command-code \
-    && curl -fsSL https://claude.ai/install.sh | bash
+    && pnpm i -g command-code
+
+RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # --- Add and switch to user ---
 RUN groupadd -g ${USER_ID} ${USER_NAME} && \
@@ -38,7 +39,7 @@ RUN groupadd -g ${USER_ID} ${USER_NAME} && \
     chsh -s /bin/zsh ${USER_NAME} && \
     # Install oh-my-zsh
     sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended && \
-    chown -R ${USER_NAME}:${USER_NAME} /home/${USER_NAME}
+    chown -R ${USER_NAME}:${USER_NAME} ${HOME}
 
 # Set the default shell for subsequent RUN commands
 SHELL ["/bin/zsh", "-c"]
@@ -48,7 +49,7 @@ RUN echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Switch to the ${USER_NAME} user
 USER ${USER_NAME}
-WORKDIR /home/${USER_NAME}
+WORKDIR ${HOME}
 
 # Set up a default .zshrc if one isn't mounted, to ensure login works
 RUN printf 'export ZSH="/home/%s/.oh-my-zsh"\n\nZSH_THEME="robbyrussell"\n\nplugins=(git)\n\nsource $ZSH/oh-my-zsh.sh\n' "${USER_NAME}" > /home/${USER_NAME}/.zshrc-default

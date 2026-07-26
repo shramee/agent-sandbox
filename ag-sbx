@@ -8,7 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIR="$(pwd)"
-IMAGE_TAG="ag-sbx:latest"
+IMAGE_TAG="agent-sbx:latest"
 HASH="$(printf '%s' "$DIR" | shasum -a 256 | cut -c1-10)"
 CONTAINER_NAME="ag-sbx-$HASH"
 
@@ -43,4 +43,4 @@ else
 fi
 
 echo "Attaching to $CONTAINER_NAME at $DIR"
-exec docker exec -it -w "$DIR" "$CONTAINER_NAME" zsh
+exec docker exec -it -w "$DIR" "$CONTAINER_NAME" sh -c 'echo "\nWelcome, You are in the agent sandbox now. \nRun whoami should say agent. exit to get back to your system.\n";zsh'
