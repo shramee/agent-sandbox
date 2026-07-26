@@ -1,0 +1,2 @@
+- Prefers `zsh` as the interactive shell when exec-ing into Docker containers (not bash). Confidence: 0.7
+- Prefers commits to include the assistant as a co-author via `Co-authored-by: CommandCodeBot <noreply@commandcode.ai>`. Confidence: 0.8

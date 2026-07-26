@@ -29,7 +29,8 @@ RUN curl -fsSL https://foundry.paradigm.xyz | bash \
 # --- pnpm + Claude Code CLI ---
 RUN corepack enable \
     && corepack prepare pnpm@latest --activate \
-    && pnpm i -g command-code @anthropic-ai/claude-code
+    && pnpm i -g command-code \
+    && curl -fsSL https://claude.ai/install.sh | bash
 
 # --- Add and switch to user ---
 RUN groupadd -g ${USER_ID} ${USER_NAME} && \
