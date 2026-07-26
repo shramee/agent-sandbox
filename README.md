@@ -9,6 +9,19 @@ sandboxes.
 The image bundles a Node/Python/Go/Foundry toolchain plus the Claude Code
 CLI (see `Dockerfile`).
 
+## What's inside the container
+
+| Tool / Runtime | Details |
+|---|---|
+| **OS & Shell** | Debian, `zsh` with oh-my-zsh (`robbyrussell` theme, git plugin) |
+| **Node.js** | v26 with `corepack` (pnpm enabled) |
+| **Python** | 3.14 |
+| **Go** | 1.26 (`/usr/local/go`) |
+| **Foundry** | Solidity toolchain (`forge`, `cast`, `anvil`) |
+| **Claude Code CLI** | Installed via the official curl installer |
+| **Command Code** | Installed globally via pnpm (`command-code`) |
+| **Sudo** | Passwordless for the `agent` user (UID 1001) |
+
 ## Install
 
 ```sh
