@@ -67,12 +67,9 @@ CLI (see `Dockerfile`).
 ./install.sh
 ```
 
-Symlinks `ag-sbx` to `~/bin/ag-sbx`. If `~/bin` isn't already on your
-`PATH`, add this to your shell rc (e.g. `~/.zshrc`) and restart your shell:
-
-```sh
-export PATH="$HOME/bin:$PATH"
-```
+Symlinks `ag-sbx` into a local bin directory — prefers `~/.local/bin` or
+`~/bin` if already on `PATH`, falling back to `~/.local/bin`. If the chosen
+directory isn't on your `PATH`, the script prints the `export` line you need.
 
 ### Usage
 

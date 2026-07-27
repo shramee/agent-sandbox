@@ -5,3 +5,7 @@
 
 - Prefers CLI tools and sandbox environments to be self-documenting — when adding new features (aliases, commands), also update the welcome banner or help text so they're discoverable. Confidence: 0.8
 - Prefers box-drawing characters (e.g., ┌─┐│└─┘├┤) for formatting tables and structured information in CLI welcome banners and terminal output. Confidence: 0.7
+- Prefers local/user install scripts to target XDG-compliant directories (`$HOME/.local/bin`) as the primary destination, with `$HOME/bin` as the main fallback — avoiding system-wide paths like `/usr/local/bin`. Confidence: 0.8
+- Prefers DRY (Don't Repeat Yourself) code with zero duplication — values single-pass logic (e.g., one loop with a compound condition) over repeated near-identical loops or branches. Confidence: 0.85
+- Prefers avoiding redundant guard conditions when the invoked tool already handles the edge case (e.g., don't check `-d` before `mkdir -p`, since `mkdir -p` is a no-op for existing directories). Confidence: 0.8
+- Prefers `.commandcode` taste files to be staged and included in commits alongside the related code changes — always, not as a separate follow-up commit. Confidence: 0.9
