@@ -43,4 +43,13 @@ else
 fi
 
 echo "Attaching to $CONTAINER_NAME at $DIR"
-exec docker exec -it -w "$DIR" "$CONTAINER_NAME" sh -c 'echo "\nWelcome, You are in the agent sandbox now. \nRun whoami should say agent. exit to get back to your system.\n";zsh'
+exec docker exec -it -w "$DIR" "$CONTAINER_NAME" sh -c 'clear;echo "
+┌──────────────────────────────────────────────────┐
+│          Welcome to the agent sandbox!           │
+│    Some shorthands for all permissions mode      │
+├──────────┬───────────────────────────────────────┤
+│  cmdy    │ command-code --yolo --no-onboarding   │
+│  clauded │ claude --dangerously-skip-permissions │
+│  exit    │ Return to your host system            │
+└──────────────────────────────────────────────────┘
+";zsh'
