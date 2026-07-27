@@ -1,0 +1,13 @@
+# Tastes
+- Prefers `zsh` as the interactive shell when exec-ing into Docker containers (not bash). Confidence: 0.7
+- Prefers commits to include the assistant as a co-author via `Co-authored-by: CommandCodeBot <noreply@commandcode.ai>`. Confidence: 0.8
+- When uncertain about a tool's CLI flags or features, prefers the assistant to consult its documentation rather than assume the functionality doesn't exist. Confidence: 0.85
+- Prefers oh-my-zsh custom aliases to be placed in `$ZSH_CUSTOM/aliases.zsh` (i.e., `~/.oh-my-zsh/custom/aliases.zsh`) rather than inline in `.zshrc` or written dynamically at runtime. Confidence: 0.85
+- Prefers CLI tools and sandbox environments to be self-documenting — when adding new features (aliases, commands), also update the welcome banner or help text so they're discoverable. Confidence: 0.8
+- Prefers box-drawing characters (e.g., ┌─┐│└─┘├┤) for formatting tables and structured information in CLI welcome banners and terminal output. Confidence: 0.7
+- Prefers local/user install scripts to target XDG-compliant directories (`$HOME/.local/bin`) as the primary destination, with `$HOME/bin` as the main fallback — avoiding system-wide paths like `/usr/local/bin`. Confidence: 0.8
+- Prefers DRY (Don't Repeat Yourself) code with zero duplication — values single-pass logic (e.g., one loop with a compound condition) over repeated near-identical loops or branches. Confidence: 0.85
+- Prefers avoiding redundant guard conditions when the invoked tool already handles the edge case (e.g., don't check `-d` before `mkdir -p`, since `mkdir -p` is a no-op for existing directories). Confidence: 0.8
+- Prefers `.commandcode` taste files to be staged and included in commits alongside the related code changes — always, not as a separate follow-up commit. Confidence: 0.9
+- Prefers short commit messages following conventional commit format: a type prefix (`chore`/`feat`/`fix`/`test`), a colon, space, then a brief description. Confidence: 0.9
+- Prefers taste preferences to be stored globally (`~/.commandcode/taste/`) rather than scoped to individual projects, so they follow the user across all projects. Confidence: 0.7
