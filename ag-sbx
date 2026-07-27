@@ -13,9 +13,13 @@ HASH="$(printf '%s' "$DIR" | shasum -a 256 | cut -c1-10)"
 CONTAINER_NAME="ag-sbx-$HASH"
 
 BUILD=false
-if [[ "${1:-}" == "--build" ]]; then
-    BUILD=true
-fi
+CLEAN=false
+for arg in "$@"; do
+    case "$arg" in
+        --build) BUILD=true ;;
+        --clean) CLEAN=true ;;
+    esac
+done
 
 if $BUILD; then
     docker build -t "$IMAGE" -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR"
@@ -29,6 +33,38 @@ mount() {
 mount_read() {
     printf -- "type=bind,src=%s,target=%s,readonly" "$1" "$2"
 }
+
+# Claude Code on Linux (the container) has no OS keychain, so it reads
+# OAuth credentials from ~/.claude/.credentials.json. On macOS those
+# credentials live in the Keychain instead. Since ~/.claude is bind-mounted
+# into the container, syncing the Keychain secret into that file (on the
+# host) makes the login visible inside the sandbox, for new and already
+# running containers alike.
+sync_claude_credentials() {
+    [[ "$(uname)" == "Darwin" ]] || return 0
+
+    local creds_file="$HOME/.claude/.credentials.json"
+    local secret
+    secret="$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null || true)"
+    [ -z "$secret" ] && return 0
+
+    if [ -f "$creds_file" ]; then
+        echo $secret > $creds_file
+        chmod 600 $creds_file
+    else
+        read -r -p "Save your macOS Claude login into $creds_file so the sandbox can use it? [y/N] " reply
+        if [[ "$reply" =~ ^[Yy]$ ]]; then
+            printf '%s' "$secret" >"$creds_file"
+            chmod 600 "$creds_file"
+        fi
+    fi
+}
+sync_claude_credentials
+
+if $CLEAN && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    echo "Removing container $CONTAINER_NAME for $DIR"
+    docker rm -f "$CONTAINER_NAME" >/dev/null
+fi
 
 if docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
