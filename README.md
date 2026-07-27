@@ -32,7 +32,8 @@ sandboxes.
 
 By default it pulls the `shramee/agent-sandbox:latest` image from
 Docker Hub. Pass `--build` to build the image locally from the
-Dockerfile instead.
+Dockerfile instead. Pass `--clean` to remove the existing container for
+the current directory first, so it gets recreated fresh.
 
 The image bundles a Node/Python/Go/Foundry toolchain plus the Claude Code
 CLI (see `Dockerfile`).
@@ -56,6 +57,14 @@ Mounted in from the host, if present:
 - `~/.claude.json` (read-only)
 - `~/.commandcode`
 - `~/.gitconfig` (read-only)
+
+Claude Code on Linux (i.e. inside the container) has no OS keychain, so it
+reads OAuth login credentials from `~/.claude/.credentials.json`. On macOS
+those credentials live in the Keychain instead, not in that file. On every
+`ag-sbx` run on macOS, the script syncs the Keychain secret into
+`~/.claude/.credentials.json` on the host (prompting for confirmation the
+first time it creates that file) so the login carries over into the
+container via the `~/.claude` mount above.
 
 
 ## Quick start container
