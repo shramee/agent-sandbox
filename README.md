@@ -22,7 +22,43 @@ Handy aliases baked into the shell:
 - `cmdy` (`command-code --yolo --no-onboarding`) and,
 - `clauded` (`claude --dangerously-skip-permissions`).
 
-## Quick start
+## Quick start `ag-sbx` CLI
+
+`ag-sbx` launches the Docker container for whatever directory you run
+it from, with that directory bind-mounted at the *same path* inside the
+container. One container per directory, keyed by a **hash of the path**,
+so running it from different projects doesn't collide or tear down other
+sandboxes.
+
+By default it pulls the `shramee/agent-sandbox:latest` image from
+Docker Hub. Pass `--build` to build the image locally from the
+Dockerfile instead.
+
+The image bundles a Node/Python/Go/Foundry toolchain plus the Claude Code
+CLI (see `Dockerfile`).
+
+```sh
+# 1. Install
+./install.sh  # Symlinks `ag-sbx` into a local bin directory or prints the `export` line you need.
+# 2. Usage
+cd ~/some/project
+ag-sbx        # pull image from Docker Hub (or use local cache)
+```
+
+First run pulls (or builds with `--build`) the `shramee/agent-sandbox:latest` image and creates a container named
+`ag-sbx-<hash of the directory>`, mounting the directory at its own path
+inside the container, then drops you into a `zsh` shell there. Later runs
+from the same directory reuse (starting if stopped) that same container.
+
+Mounted in from the host, if present:
+
+- `~/.claude` — Claude Code config/state
+- `~/.claude.json` (read-only)
+- `~/.commandcode`
+- `~/.gitconfig` (read-only)
+
+
+## Quick start container
 
 Bind-mount your project at the same path inside the container and drop into
 a shell:
@@ -49,45 +85,3 @@ docker run -it --rm \
   -w "$(pwd)" \
   shramee/agent-sandbox:latest zsh
 ```
-
-## `ag-sbx` CLI
-
-`ag-sbx` launches the Docker container for whatever directory you run
-it from, with that directory bind-mounted at the *same path* inside the
-container. One container per directory, keyed by a **hash of the path**,
-so running it from different projects doesn't collide or tear down other
-sandboxes.
-
-The image bundles a Node/Python/Go/Foundry toolchain plus the Claude Code
-CLI (see `Dockerfile`).
-
-### Install
-
-```sh
-./install.sh
-```
-
-Symlinks `ag-sbx` into a local bin directory — prefers `~/.local/bin` or
-`~/bin` if already on `PATH`, falling back to `~/.local/bin`. If the chosen
-directory isn't on your `PATH`, the script prints the `export` line you need.
-
-### Usage
-
-From any project directory:
-
-```sh
-cd ~/some/project
-ag-sbx
-```
-
-First run builds the `ag-sbx:latest` image and creates a container named
-`ag-sbx-<hash of the directory>`, mounting the directory at its own path
-inside the container, then drops you into a `zsh` shell there. Later runs
-from the same directory reuse (starting if stopped) that same container.
-
-Mounted in from the host, if present:
-
-- `~/.claude` — Claude Code config/state
-- `~/.claude.json` (read-only)
-- `~/.commandcode`
-- `~/.gitconfig` (read-only)

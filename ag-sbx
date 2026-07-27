@@ -8,11 +8,20 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIR="$(pwd)"
-IMAGE_TAG="agent-sbx:latest"
+IMAGE="shramee/agent-sandbox:latest"
 HASH="$(printf '%s' "$DIR" | shasum -a 256 | cut -c1-10)"
 CONTAINER_NAME="ag-sbx-$HASH"
 
-docker build -t "$IMAGE_TAG" -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR"
+BUILD=false
+if [[ "${1:-}" == "--build" ]]; then
+    BUILD=true
+fi
+
+if $BUILD; then
+    docker build -t "$IMAGE" -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR"
+elif ! docker image inspect "$IMAGE" &>/dev/null; then
+    docker pull "$IMAGE"
+fi
 
 mount() {
     printf -- "type=bind,src=%s,target=%s" "$1" "$2"
@@ -39,7 +48,7 @@ else
     [ -f "$HOME/.claude.json" ] && run_args+=(--mount "$(mount_read "$HOME/.claude.json" "/home/agent/.claude.json")")
     [ -f "$HOME/.gitconfig" ] && run_args+=(--mount "$(mount_read "$HOME/.gitconfig" "/home/agent/.gitconfig")")
 
-    docker run -d --name "$CONTAINER_NAME" "${run_args[@]}" -w "$DIR" "$IMAGE_TAG"
+    docker run -d --name "$CONTAINER_NAME" "${run_args[@]}" -w "$DIR" "$IMAGE"
 fi
 
 echo "Attaching to $CONTAINER_NAME at $DIR"
