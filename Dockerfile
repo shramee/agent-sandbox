@@ -33,6 +33,8 @@ RUN corepack enable \
 
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
+
 # --- Add and switch to user ---
 RUN groupadd -g ${USER_ID} ${USER_NAME} && \
     useradd -m -u ${USER_ID} -g ${USER_ID} -s /bin/bash ${USER_NAME} && \

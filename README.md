@@ -1,7 +1,7 @@
 # Agent sandbox container
 
 A sandboxed dev container for coding agents: Node/Python/Go/Foundry toolchain
-plus the Claude Code CLI, ready to bind-mount a project directory into.
+plus the Claude Code CLI and rtk, ready to bind-mount a project directory into.
 
 Source & Dockerfile: https://github.com/shramee/agent-sandbox
 
@@ -16,6 +16,7 @@ Source & Dockerfile: https://github.com/shramee/agent-sandbox
 | **Foundry**      | Solidity toolchain (`forge`, `cast`, `anvil`) |
 | **Claude Code**  | Installed via the official curl installer     |
 | **Command Code** | Installed globally via pnpm (`command-code`)  |
+| **rtk**          | Installed via the official curl installer     |
 | **Sudo**         | Passwordless for the `agent` user (UID 1001)  |
 
 Handy aliases baked into the shell:
@@ -36,7 +37,7 @@ Dockerfile instead. Pass `--clean` to remove the existing container for
 the current directory first, so it gets recreated fresh.
 
 The image bundles a Node/Python/Go/Foundry toolchain plus the Claude Code
-CLI (see `Dockerfile`).
+CLI and rtk (see `Dockerfile`).
 
 ```sh
 # 1. Install
