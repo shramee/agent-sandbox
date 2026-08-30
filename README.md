@@ -14,14 +14,30 @@ Source & Dockerfile: https://github.com/shramee/agent-sandbox
 | **Python**       | 3.14                                          |
 | **Go**           | 1.26 (`/usr/local/go`)                        |
 | **Foundry**      | Solidity toolchain (`forge`, `cast`, `anvil`) |
-| **Claude Code**  | Installed via the official curl installer     |
-| **Command Code** | Installed globally via pnpm (`command-code`)  |
+| **Claude Code**  | Installed via the official installer (stable) |
+| **Command Code** | Installed globally via pnpm (`command-code@latest`) |
+| **GoModel**      | AI gateway serving Anthropic-compatible API (see `claude-gomodel`) |
 | **rtk**          | Installed via the official curl installer     |
 | **Sudo**         | Passwordless for the `agent` user (UID 1001)  |
 
 Handy aliases baked into the shell:
-- `cmdy` (`command-code --yolo --no-onboarding`) and,
-- `clauded` (`claude --dangerously-skip-permissions`).
+- `cmdy` (`command-code --yolo --no-onboarding`),
+- `clauded` (`claude --dangerously-skip-permissions`) and,
+- `claudem` (`claude-gomodel --dangerously-skip-permissions`).
+
+### `claudem` — Claude Code via the Command Code API
+
+`claude-gomodel` starts a local [GoModel](https://github.com/ENTERPILOT/GOModel)
+gateway that serves an Anthropic-compatible API backed by Command Code's
+OpenAI-compatible provider endpoint
+(`https://api.commandcode.ai/provider/v1`), using your Command Code API key
+from `~/.commandcode/auth.json`, then launches Claude Code pointed at it.
+The gateway keeps running for reuse; logs land in `/tmp/gomodel.log`.
+
+Model tiers are mapped onto Command Code models by default
+(`HAIKU`→`xiaomi/mimo-v2.5`, `SONNET`→`gpt-5.6-luna`, `OPUS`→`zai-org/GLM-5.3`)
+and can be overridden per tier in `~/.config/claude-gomodel.conf`
+(see [`claude-gomodel.conf`](claude-gomodel.conf)).
 
 ## Quick start `ag-sbx` CLI
 

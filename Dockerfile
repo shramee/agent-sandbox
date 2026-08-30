@@ -26,14 +26,26 @@ RUN ARCH=$(dpkg --print-architecture) \
 RUN curl -fsSL https://foundry.paradigm.xyz | bash \
     && $HOME/.foundry/bin/foundryup
 
-# --- pnpm + Claude Code CLI ---
+# --- pnpm + Command Code CLI ---
 RUN corepack enable \
     && corepack prepare pnpm@latest --activate \
-    && pnpm i -g command-code
+    && pnpm i -g command-code@latest
 
+# --- Claude Code CLI (from the official installer) ---
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
+
+# --- GoModel AI gateway + claude-gomodel launcher ---
+# GoModel serves an Anthropic-compatible API backed by OpenAI-compatible
+# providers; claude-gomodel points it at Command Code's API (see script).
+COPY claude-gomodel /usr/local/bin/claude-gomodel
+RUN chmod 755 /usr/local/bin/claude-gomodel \
+    && curl -fsSL https://gomodel.enterpilot.io/install.sh \
+        | GOMODEL_INSTALL_DIR="${HOME}/.local/bin" sh
+
+# Model tier overrides for claudem (haiku/sonnet/opus/fable), editable in place
+COPY claude-gomodel.conf /home/${USER_NAME}/.config/claude-gomodel.conf
 
 # --- Add and switch to user ---
 RUN groupadd -g ${USER_ID} ${USER_NAME} && \
@@ -57,7 +69,7 @@ WORKDIR ${HOME}
 RUN printf 'export ZSH="/home/%s/.oh-my-zsh"\n\nZSH_THEME="robbyrussell"\n\nplugins=(git)\n\nsource $ZSH/oh-my-zsh.sh\n' "${USER_NAME}" > /home/${USER_NAME}/.zshrc-default
 
 # Agent sandbox aliases
-RUN printf '#!/bin/zsh\n\nalias cmdy="command-code --yolo --no-onboarding"\nalias clauded="claude --dangerously-skip-permissions"\n' > /home/${USER_NAME}/.oh-my-zsh/custom/aliases.zsh
+RUN printf '#!/bin/zsh\n\nalias cmdy="command-code --yolo --no-onboarding"\nalias clauded="claude --dangerously-skip-permissions"\nalias claudem="claude-gomodel --dangerously-skip-permissions"\n' > /home/${USER_NAME}/.oh-my-zsh/custom/aliases.zsh
 
 # Keep the container running
 CMD ["sleep", "infinity"]

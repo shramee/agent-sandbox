@@ -1,0 +1,73 @@
+#!/bin/sh
+# claude-gomodel: run Claude Code against Command Code's API via a local
+# GoModel gateway. GoModel fronts an Anthropic-compatible API (/v1/messages)
+# and routes to the OpenAI-compatible Command Code provider endpoint.
+#
+# Reads the Command Code API key from ~/.commandcode/auth.json, starts a
+# GoModel gateway backed by https://api.commandcode.ai/provider/v1 if none is
+# running yet, then points the Claude Code CLI at the gateway. Subsequent
+# invocations reuse the running gateway. Gateway logs: /tmp/gomodel.log
+#
+# Per-tier model overrides (haiku/sonnet/opus/fable) live in
+# ~/.config/claude-gomodel.conf — see claude-gomodel.conf in the ag-sbx repo.
+set -eu
+
+AUTH_FILE="${COMMANDCODE_AUTH_FILE:-${HOME}/.commandcode/auth.json}"
+GOMODEL_URL="${GOMODEL_URL:-http://127.0.0.1:8080}"
+CC_API_BASE="https://api.commandcode.ai/provider/v1"
+LOG_FILE="${TMPDIR:-/tmp}/gomodel.log"
+CONF_FILE="${CLAUDE_GOMODEL_CONF:-${XDG_CONFIG_HOME:-${HOME}/.config}/claude-gomodel.conf}"
+
+# Tier overrides: HAIKU, SONNET, OPUS, FABLE (conf beats shell env beats defaults)
+[ -f "$CONF_FILE" ] && . "$CONF_FILE"
+
+HAIKU_MODEL="${HAIKU:-${ANTHROPIC_SMALL_FAST_MODEL:-xiaomi/mimo-v2.5}}"
+SONNET_MODEL="${SONNET:-${ANTHROPIC_MODEL:-gpt-5.6-luna}}"
+OPUS_MODEL="${OPUS:-${ANTHROPIC_DEFAULT_OPUS_MODEL:-zai-org/GLM-5.3}}"
+
+[ -f "$AUTH_FILE" ] || {
+    echo "error: $AUTH_FILE not found — log in to Command Code first (run: cmdy)" >&2
+    exit 1
+}
+API_KEY="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["apiKey"])' "$AUTH_FILE")"
+[ -n "$API_KEY" ] || { echo "error: no apiKey in $AUTH_FILE" >&2; exit 1; }
+MASTER_KEY="cc-${API_KEY}"
+
+gateway_up() {
+    curl -fsS -o /dev/null -H "Authorization: Bearer $MASTER_KEY" "$GOMODEL_URL/v1/models" 2>/dev/null
+}
+
+if ! gateway_up; then
+    STATE_DIR="${XDG_DATA_HOME:-${HOME}/.local/share}/gomodel"
+    mkdir -p "$STATE_DIR"
+    echo "Starting GoModel gateway on $GOMODEL_URL (log: $LOG_FILE)..."
+    (
+        cd "$STATE_DIR" || exit 1
+        export PORT="${GOMODEL_URL##*:}"
+        export OPENAI_COMMANDCODE_BASE_URL="$CC_API_BASE"
+        export OPENAI_COMMANDCODE_API_KEY="$API_KEY"
+        export GOMODEL_MASTER_KEY="$MASTER_KEY"
+        exec gomodel
+    ) >"$LOG_FILE" 2>&1 &
+    until gateway_up || ! kill -0 "$!" 2>/dev/null; do sleep 0.2; done
+    gateway_up || {
+        echo "error: gomodel failed to start — see $LOG_FILE:" >&2
+        tail -n 5 "$LOG_FILE" >&2
+        exit 1
+    }
+fi
+
+export ANTHROPIC_BASE_URL="$GOMODEL_URL"
+export ANTHROPIC_AUTH_TOKEN="$MASTER_KEY"
+export ANTHROPIC_MODEL="$SONNET_MODEL"
+export ANTHROPIC_SMALL_FAST_MODEL="$HAIKU_MODEL"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="$HAIKU_MODEL"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="$SONNET_MODEL"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="$OPUS_MODEL"
+if [ -n "${FABLE:-}" ]; then
+    # No dedicated Claude Code tier yet; exported for fable-capable clients
+    # and available to wrappers around this script.
+    export ANTHROPIC_FABLE_MODEL="$FABLE"
+fi
+
+exec claude "$@"
