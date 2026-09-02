@@ -30,17 +30,25 @@ usage() {
     cat <<EOF
 ag-sbx — sandboxed agent container for the current directory
 
-Usage: ag-sbx [command]        (-- prefixed flags work too)
+Usage: ag-sbx [command] [-- cmd args...]   (-- prefixed flags work too)
 
-  (none)   Launch or attach to this directory's sandbox container.
-  build    Build the image from the repo Dockerfile and recreate this
-           directory's container on the fresh build.
-  deploy   Build + push the image to Docker Hub, then recreate this
-           directory's container on it.
-  update   Pull the latest image from Docker Hub and recreate this
-           directory's container on it.
-  clean    Remove this directory's container so it's recreated fresh.
-  help     Show this help.
+  (none)       Launch or attach to this directory's sandbox container.
+  build        Build the image from the repo Dockerfile and recreate this
+               directory's container on the fresh build.
+  deploy       Build + push the image to Docker Hub, then recreate this
+               directory's container on it.
+  update       Pull the latest image from Docker Hub and recreate this
+               directory's container on it.
+  clean        Remove this directory's container so it's recreated fresh.
+  help         Show this help.
+  dry-run      Print the container name and mount list that would be used,
+               without touching docker.
+  cmd args…    Run cmd inside the container non-interactively, e.g.
+               ag-sbx ls -la   or   ag-sbx zsh
+               (attach with no args for the interactive shell)
+
+Env:
+  AG_SBX_IMAGE   Image to use instead of shramee/agent-sandbox:latest
 EOF
 }
 
@@ -48,22 +56,45 @@ BUILD=false
 CLEAN=false
 DEPLOY=false
 UPDATE=false
+DRYRUN=false
+RUNCMD=()
 for arg in "$@"; do
     case "$arg" in
         build|--build) BUILD=true ;;
         clean|--clean) CLEAN=true ;;
         deploy|--deploy) BUILD=true; DEPLOY=true ;;
         update|--update) UPDATE=true ;;
+        dry-run|--dry-run) DRYRUN=true ;;
         help|-h|--help) usage; exit 0 ;;
+        --)
+            # Everything after a bare -- is a command to run in the container.
+            RUNCMD=("$@")
+            break
+            ;;
         *)
-            echo "ag-sbx: unknown argument '$arg'" >&2
-            usage >&2
-            exit 1
+            # First unrecognised token: treat the whole remainder as a command
+            # to run inside the container (README: "takes an optional command").
+            RUNCMD=("$@")
+            break
             ;;
     esac
 done
+# Strip leading subcommand tokens we already consumed off a passthrough cmd.
+# e.g. `ag-sbx build -- ls` → ls only. Anything else is left as-is.
+if [ "${#RUNCMD[@]}" -gt 0 ]; then
+    while [ "${#RUNCMD[@]}" -gt 0 ]; do
+        case "${RUNCMD[0]}" in
+            build|--build|clean|--clean|deploy|--deploy|update|--update|help|-h|--help|dry-run|--dry-run|--)
+                RUNCMD=("${RUNCMD[@]:1}")
+                ;;
+            *) break ;;
+        esac
+    done
+fi
 
-if $BUILD; then
+if $DRYRUN; then
+    :  # dry-run doesn't touch docker at all; falls through to print mounts
+elif $BUILD; then
     echo "Building $IMAGE"
     docker build -t "$IMAGE" -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR"
     if $DEPLOY; then
@@ -114,12 +145,12 @@ sync_claude_credentials
 
 # Containers pin their image at creation time, so build/deploy/update must
 # also drop the old container or the new image never gets used.
-if { $CLEAN || $BUILD || $UPDATE; } && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+if ! $DRYRUN && { $CLEAN || $BUILD || $UPDATE; } && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     echo "Removing container $CONTAINER_NAME for $DIR"
     docker rm -f "$CONTAINER_NAME" >/dev/null
 fi
 
-if docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+if ! $DRYRUN && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
         echo "Reusing running container $CONTAINER_NAME for $DIR"
     else
@@ -177,11 +208,39 @@ else
     [ -f "$HOME/.claude.json" ] && run_args+=(--mount "$(mount_read "$HOME/.claude.json" "$AGENT_HOME/.claude.json")")
     [ -f "$HOME/.gitconfig" ] && run_args+=(--mount "$(mount_read "$HOME/.gitconfig" "$AGENT_HOME/.gitconfig")")
 
+    if $DRYRUN; then
+        echo "Image:        $IMAGE"
+        echo "Container:    $CONTAINER_NAME"
+        echo "Mounts:"
+        for ((i = 0; i < ${#run_args[@]}; i += 2)); do
+            printf '  %s %s\n' "${run_args[i]}" "${run_args[i + 1]}"
+        done
+        echo "(dry-run — docker not invoked)"
+        exit 0
+    fi
+
     docker run -d --name "$CONTAINER_NAME" "${run_args[@]}" -w "$DIR" "$IMAGE"
 fi
 
+# Interactive only when stdin+stdout are a terminal. When stdout is piped
+# (e.g. `ag-sbx ... | grep`), skip -t and the banner so we don't emit escape
+# noise or prompt through the pipe.
+TTY_FLAGS=()
+if [ -t 0 ] && [ -t 1 ]; then
+    TTY_FLAGS+=(-it)
+else
+    TTY_FLAGS+=(-i)
+fi
+
+# Run a non-interactive command if one was given (no TTY juggling needed).
+if [ "${#RUNCMD[@]}" -gt 0 ]; then
+    exec docker exec "${TTY_FLAGS[@]}" -w "$DIR" "$CONTAINER_NAME" "${RUNCMD[@]}"
+fi
+
 echo "Attaching to $CONTAINER_NAME at $DIR"
-exec docker exec -it -w "$DIR" "$CONTAINER_NAME" sh -c 'clear;echo "
+SHELL_CMD='zsh'
+if [ -t 0 ] && [ -t 1 ]; then
+    SHELL_CMD='clear;echo "
 ┌──────────────────────────────────────────────────┐
 │          Welcome to the agent sandbox!           │
 │    Some shorthands for all permissions mode      │
@@ -192,3 +251,5 @@ exec docker exec -it -w "$DIR" "$CONTAINER_NAME" sh -c 'clear;echo "
 │  exit    │ Return to your host system            │
 └──────────────────────────────────────────────────┘
 ";zsh'
+fi
+exec docker exec "${TTY_FLAGS[@]}" -w "$DIR" "$CONTAINER_NAME" sh -c "$SHELL_CMD"
