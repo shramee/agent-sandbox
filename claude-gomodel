@@ -21,9 +21,10 @@ CONF_FILE="${CLAUDE_GOMODEL_CONF:-${XDG_CONFIG_HOME:-${HOME}/.config}/claude-gom
 # Tier overrides: HAIKU, SONNET, OPUS, FABLE (conf beats shell env beats defaults)
 [ -f "$CONF_FILE" ] && . "$CONF_FILE"
 
-HAIKU_MODEL="${HAIKU:-${ANTHROPIC_SMALL_FAST_MODEL:-xiaomi/mimo-v2.5}}"
-SONNET_MODEL="${SONNET:-${ANTHROPIC_MODEL:-gpt-5.6-luna}}"
-OPUS_MODEL="${OPUS:-${ANTHROPIC_DEFAULT_OPUS_MODEL:-zai-org/GLM-5.3}}"
+HAIKU_MODEL="${HAIKU:-${ANTHROPIC_SMALL_FAST_MODEL:-'poolside/laguna-s-2.1-free'}}"
+SONNET_MODEL="${SONNET:-${ANTHROPIC_MODEL:-'deepseek/deepseek-v4-flash[1m]'}}"
+OPUS_MODEL="${OPUS:-${ANTHROPIC_DEFAULT_OPUS_MODEL:-'glm-5.3-flash[1m]'}}"
+FABLE_MODEL="${FABLE:-${ANTHROPIC_FABLE_MODEL:-'zai-org/GLM-5.3[1m]'}}"
 
 [ -f "$AUTH_FILE" ] || {
     echo "error: $AUTH_FILE not found — log in to Command Code first (run: cmdy)" >&2
