@@ -43,14 +43,16 @@ and can be overridden per tier in `~/.config/claude-gomodel.conf`
 
 `ag-sbx` launches the Docker container for whatever directory you run
 it from, with that directory bind-mounted at the *same path* inside the
-container. One container per directory, keyed by a **hash of the path**,
-so running it from different projects doesn't collide or tear down other
-sandboxes.
+container. One container per directory, named
+`sbx-<first-5-of-dirname>-<4-hex-of-path>` (e.g. `sbx-ag-sb-f625`), so it's
+recognisable in `docker ps` and running it from different projects doesn't
+collide or tear down other sandboxes.
 
-By default it uses the `shramee/agent-sandbox:latest` image, pulling it from
-Docker Hub when it's not on the machine yet. It takes an optional command
-(`--` prefixed flags work too):
+By default it uses the `shramee/agent-sandbox:latest` image (override with
+`AG_SBX_IMAGE`), pulling it from Docker Hub when it's not on the machine yet.
+It takes an optional command, so you can run things non-interactively too:
 
+- `ag-sbx` — launch/attach to this directory's sandbox (interactive `zsh`).
 - `ag-sbx build` — build the image locally from the Dockerfile and recreate
   this directory's container on the fresh build.
 - `ag-sbx deploy` — build + push the image to Docker Hub, then recreate this
@@ -59,6 +61,8 @@ Docker Hub when it's not on the machine yet. It takes an optional command
   directory's container on it. Useful after a deploy elsewhere: a plain run
   only pulls when the image is missing locally.
 - `ag-sbx clean` — remove this directory's container so it's recreated fresh.
+- `ag-sbx <cmd>…` or `ag-sbx -- <cmd>…` — run a command in the container
+  without dropping into a shell, e.g. `ag-sbx ls -la` or `ag-sbx python --version`.
 
 So shipping a new image is:
 
@@ -79,16 +83,40 @@ ag-sbx        # pull image from Docker Hub (or use local cache)
 ```
 
 First run pulls (or builds with `build`) the `shramee/agent-sandbox:latest` image and creates a container named
-`ag-sbx-<hash of the directory>`, mounting the directory at its own path
+`sbx-<dirname5>-<pathhash4>`, mounting the directory at its own path
 inside the container, then drops you into a `zsh` shell there. Later runs
 from the same directory reuse (starting if stopped) that same container.
 
-Mounted in from the host, if present:
+## Mounts: read-only config, live project state
 
-- `~/.claude` — Claude Code config/state
+The container is a *sandbox*: your Claude/Command Code config and
+credentials are exposed to it **read-only**, so an agent inside can't rewrite
+the `settings.json`, keybindings, auth tokens, or other files your *host*
+Claude Code trusts. Only the directories that need to stay live between
+host and container — your chat transcripts and session state — are mounted
+read-write, so `/resume`, `--continue`, and cross-run state all work.
+
+Mounted **read-only** from the host (if present):
+
+- `~/.claude` — config, `.credentials.json`, keybindings, plugins, CLAUDE.md
+- `~/.commandcode` — Command Code config + `auth.json`
 - `~/.claude.json` (read-only)
-- `~/.commandcode`
 - `~/.gitconfig` (read-only)
+
+Mounted **read-write** as live overlays (created if missing):
+
+- `~/.claude/projects/` — per-project chat transcripts (`*.jsonl`) → `/resume`
+- `~/.claude/sessions/` — session/encryption state
+- `~/.claude/shell-snapshots/` — shell state for background commands
+- `~/.commandcode/projects/` — Command Code transcripts
+- `~/.claude/history.jsonl`, `~/.commandcode/history.jsonl` — command history
+- the project directory you launched from
+
+Because a bind mount can't nest, the base `~/.claude` / `~/.commandcode`
+mounts are read-only and the live paths above are re-mounted read-write over
+the top. Anything Claude/Command Code writes elsewhere inside those dirs
+(e.g. caches, `downloads/`, `backups/`) stays in the container's own layer —
+it won't leak back to the host, and it disappears when you `clean`.
 
 Claude Code on Linux (i.e. inside the container) has no OS keychain, so it
 reads OAuth login credentials from `~/.claude/.credentials.json`. On macOS
@@ -96,7 +124,7 @@ those credentials live in the Keychain instead, not in that file. On every
 `ag-sbx` run on macOS, the script syncs the Keychain secret into
 `~/.claude/.credentials.json` on the host (prompting for confirmation the
 first time it creates that file) so the login carries over into the
-container via the `~/.claude` mount above.
+container via the read-only `~/.claude` mount above.
 
 ## Quick start container
 
