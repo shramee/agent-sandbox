@@ -35,7 +35,7 @@ from `~/.commandcode/auth.json`, then launches Claude Code pointed at it.
 The gateway keeps running for reuse; logs land in `/tmp/gomodel.log`.
 
 Model tiers are mapped onto Command Code models by default
-(`HAIKU`→`xiaomi/mimo-v2.5`, `SONNET`→`gpt-5.6-luna`, `OPUS`→`zai-org/GLM-5.3`)
+(`HAIKU`→`xiaomi/mimo-v2.5`, `SONNET`→`z-ai/glm-5.3-flash`, `OPUS`→`zai-org/GLM-5.3`)
 and can be overridden per tier in `~/.config/claude-gomodel.conf`
 (see [`claude-gomodel.conf`](claude-gomodel.conf)).
 
@@ -47,10 +47,25 @@ container. One container per directory, keyed by a **hash of the path**,
 so running it from different projects doesn't collide or tear down other
 sandboxes.
 
-By default it pulls the `shramee/agent-sandbox:latest` image from
-Docker Hub. Pass `--build` to build the image locally from the
-Dockerfile instead. Pass `--clean` to remove the existing container for
-the current directory first, so it gets recreated fresh.
+By default it uses the `shramee/agent-sandbox:latest` image, pulling it from
+Docker Hub when it's not on the machine yet. It takes an optional command
+(`--` prefixed flags work too):
+
+- `ag-sbx build` — build the image locally from the Dockerfile and recreate
+  this directory's container on the fresh build.
+- `ag-sbx deploy` — build + push the image to Docker Hub, then recreate this
+  directory's container on it.
+- `ag-sbx update` — pull the latest image from Docker Hub and recreate this
+  directory's container on it. Useful after a deploy elsewhere: a plain run
+  only pulls when the image is missing locally.
+- `ag-sbx clean` — remove this directory's container so it's recreated fresh.
+
+So shipping a new image is:
+
+```sh
+ag-sbx deploy   # on the machine with the changes: build + push
+ag-sbx update   # everywhere else: pull the new image, recreate the container
+```
 
 The image bundles a Node/Python/Go/Foundry toolchain plus the Claude Code
 CLI and rtk (see `Dockerfile`).
@@ -63,7 +78,7 @@ cd ~/some/project
 ag-sbx        # pull image from Docker Hub (or use local cache)
 ```
 
-First run pulls (or builds with `--build`) the `shramee/agent-sandbox:latest` image and creates a container named
+First run pulls (or builds with `build`) the `shramee/agent-sandbox:latest` image and creates a container named
 `ag-sbx-<hash of the directory>`, mounting the directory at its own path
 inside the container, then drops you into a `zsh` shell there. Later runs
 from the same directory reuse (starting if stopped) that same container.
@@ -82,7 +97,6 @@ those credentials live in the Keychain instead, not in that file. On every
 `~/.claude/.credentials.json` on the host (prompting for confirmation the
 first time it creates that file) so the login carries over into the
 container via the `~/.claude` mount above.
-
 
 ## Quick start container
 

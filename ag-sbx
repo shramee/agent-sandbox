@@ -20,23 +20,52 @@ IMAGE="shramee/agent-sandbox:latest"
 HASH="$(printf '%s' "$DIR" | shasum -a 256 | cut -c1-10)"
 CONTAINER_NAME="ag-sbx-$HASH"
 
+usage() {
+    cat <<EOF
+ag-sbx — sandboxed agent container for the current directory
+
+Usage: ag-sbx [command]        (-- prefixed flags work too)
+
+  (none)   Launch or attach to this directory's sandbox container.
+  build    Build the image from the repo Dockerfile and recreate this
+           directory's container on the fresh build.
+  deploy   Build + push the image to Docker Hub, then recreate this
+           directory's container on it.
+  update   Pull the latest image from Docker Hub and recreate this
+           directory's container on it.
+  clean    Remove this directory's container so it's recreated fresh.
+  help     Show this help.
+EOF
+}
+
 BUILD=false
 CLEAN=false
+DEPLOY=false
+UPDATE=false
 for arg in "$@"; do
     case "$arg" in
         build|--build) BUILD=true ;;
         clean|--clean) CLEAN=true ;;
+        deploy|--deploy) BUILD=true; DEPLOY=true ;;
+        update|--update) UPDATE=true ;;
+        help|-h|--help) usage; exit 0 ;;
         *)
             echo "ag-sbx: unknown argument '$arg'" >&2
-            echo "Usage: ag-sbx [--build] [--clean]" >&2
+            usage >&2
             exit 1
             ;;
     esac
 done
 
 if $BUILD; then
+    echo "Building $IMAGE"
     docker build -t "$IMAGE" -f "$SCRIPT_DIR/Dockerfile" "$SCRIPT_DIR"
-elif ! docker image inspect "$IMAGE" &>/dev/null; then
+    if $DEPLOY; then
+        echo "Pushing $IMAGE to Docker Hub"
+        docker push "$IMAGE"
+    fi
+elif $UPDATE || ! docker image inspect "$IMAGE" &>/dev/null; then
+    echo "Pulling $IMAGE"
     docker pull "$IMAGE"
 fi
 
@@ -74,9 +103,9 @@ sync_claude_credentials() {
 }
 sync_claude_credentials
 
-# Containers pin their image at creation time, so --build must also drop the
-# old container or the freshly built tag never gets used.
-if { $CLEAN || $BUILD; } && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+# Containers pin their image at creation time, so build/deploy/update must
+# also drop the old container or the new image never gets used.
+if { $CLEAN || $BUILD || $UPDATE; } && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     echo "Removing container $CONTAINER_NAME for $DIR"
     docker rm -f "$CONTAINER_NAME" >/dev/null
 fi
