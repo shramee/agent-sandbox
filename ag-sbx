@@ -127,15 +127,55 @@ if docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
         docker start "$CONTAINER_NAME" >/dev/null
     fi
 else
+    # Paths the container maps onto the host's ~/.claude / ~/.commandcode.
+    # Read-only base mounts expose config/credentials/plugins to the sandbox
+    # WITHOUT letting an in-container agent tamper with what the host trusts
+    # (settings.json, keybindings, auth tokens). Read-write overlays below
+    # keep chat transcripts and session state live between host and sandbox.
+    for base in "$HOME/.claude" "$HOME/.commandcode"; do
+        [ -d "$base" ] || { echo "error: $base not found — run claude/command-code on the host once (or mkdir -p \"$base\") before using ag-sbx" >&2; exit 1; }
+    done
+
     echo "Creating container $CONTAINER_NAME for $DIR"
 
     run_args=(
-        --mount "$(mount "$HOME/.commandcode" "/home/agent/.commandcode")"
-        --mount "$(mount "$HOME/.claude" "/home/agent/.claude")"
-        --mount "$(mount "$DIR" "$DIR")"
+        --mount "$(mount_read "$HOME/.claude" "$AGENT_HOME/.claude")"
+        --mount "$(mount_read "$HOME/.commandcode" "$AGENT_HOME/.commandcode")"
     )
-    [ -f "$HOME/.claude.json" ] && run_args+=(--mount "$(mount_read "$HOME/.claude.json" "/home/agent/.claude.json")")
-    [ -f "$HOME/.gitconfig" ] && run_args+=(--mount "$(mount_read "$HOME/.gitconfig" "/home/agent/.gitconfig")")
+
+    # Live rw overlays: chats + session state must round-trip between host and
+    # container (resume / --continue, cross-run messaging), so those dirs stay
+    # writeable while everything else above is read-only.
+    # Ensure the host source exists (docker won't create it for a bind mount),
+    # then add the mount. Dirs and files are handled separately.
+    overlay_dir() {  # overlay_dir <host dir> <container dir>
+        mkdir -p "$1"
+        run_args+=(--mount "$(mount "$1" "$2")")
+    }
+    overlay_file() {  # overlay_file <host file> <container file>
+        mkdir -p "$(dirname "$1")"
+        [ -e "$1" ] || : >"$1"
+        run_args+=(--mount "$(mount "$1" "$2")")
+    }
+    overlay_dir "$HOME/.claude/projects"        "$AGENT_HOME/.claude/projects"
+    overlay_dir "$HOME/.claude/sessions"        "$AGENT_HOME/.claude/sessions"
+    overlay_dir "$HOME/.claude/shell-snapshots" "$AGENT_HOME/.claude/shell-snapshots"
+    overlay_dir "$HOME/.commandcode/projects"   "$AGENT_HOME/.commandcode/projects"
+    overlay_file "$HOME/.claude/history.jsonl"      "$AGENT_HOME/.claude/history.jsonl"
+    overlay_file "$HOME/.commandcode/history.jsonl" "$AGENT_HOME/.commandcode/history.jsonl"
+    # Claude Code refreshes its OAuth token by rewriting this file on Linux
+    # (no keychain). Keep just it writeable so long sessions don't break on
+    # refresh — a single narrow file, not the whole config tree. Only overlay
+    # when it actually exists on the host (macOS sync creates it; Linux hosts
+    # keep it in ~/.claude); don't manufacture an empty one.
+    [ -e "$HOME/.claude/.credentials.json" ] && \
+        overlay_file "$HOME/.claude/.credentials.json" "$AGENT_HOME/.claude/.credentials.json"
+
+    # The project dir itself stays live rw too.
+    overlay_dir "$DIR" "$DIR"
+
+    [ -f "$HOME/.claude.json" ] && run_args+=(--mount "$(mount_read "$HOME/.claude.json" "$AGENT_HOME/.claude.json")")
+    [ -f "$HOME/.gitconfig" ] && run_args+=(--mount "$(mount_read "$HOME/.gitconfig" "$AGENT_HOME/.gitconfig")")
 
     docker run -d --name "$CONTAINER_NAME" "${run_args[@]}" -w "$DIR" "$IMAGE"
 fi
