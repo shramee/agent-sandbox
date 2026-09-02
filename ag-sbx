@@ -16,9 +16,15 @@ while [ -L "$SOURCE" ]; do
 done
 SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 DIR="$(pwd)"
-IMAGE="shramee/agent-sandbox:latest"
-HASH="$(printf '%s' "$DIR" | shasum -a 256 | cut -c1-10)"
-CONTAINER_NAME="ag-sbx-$HASH"
+IMAGE="${AG_SBX_IMAGE:-shramee/agent-sandbox:latest}"
+AGENT_HOME="/home/agent"
+
+# One container per directory. Name is sbx-<first 5 of dirname>-<4 hex of path>
+# so it's recognisable in `docker ps` but still scoped to this directory.
+DIRNAME="$(basename "$DIR")"
+DNAME="$(printf '%s' "$DIRNAME" | tr -cd 'A-Za-z0-9_.-' | cut -c1-5 | tr 'A-Z' 'a-z')"
+HASH="$(printf '%s' "$DIR" | shasum -a 256 | cut -c1-4)"
+CONTAINER_NAME="sbx-${DNAME}-${HASH}"
 
 usage() {
     cat <<EOF
