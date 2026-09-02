@@ -96,13 +96,16 @@ sync_claude_credentials() {
     secret="$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null || true)"
     [ -z "$secret" ] && return 0
 
+    umask 077   # never let the token be world-readable, even briefly
     if [ -f "$creds_file" ]; then
-        echo $secret > $creds_file
-        chmod 600 $creds_file
+        if [ "$(cat "$creds_file" 2>/dev/null)" != "$secret" ]; then
+            printf '%s\n' "$secret" >"$creds_file"
+            chmod 600 "$creds_file"
+        fi
     else
         read -r -p "Save your macOS Claude login into $creds_file so the sandbox can use it? [y/N] " reply
         if [[ "$reply" =~ ^[Yy]$ ]]; then
-            printf '%s' "$secret" >"$creds_file"
+            printf '%s\n' "$secret" >"$creds_file"
             chmod 600 "$creds_file"
         fi
     fi
