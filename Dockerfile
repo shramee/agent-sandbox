@@ -36,16 +36,16 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
 
-# --- GoModel AI gateway + claude-gomodel launcher ---
 # GoModel serves an Anthropic-compatible API backed by OpenAI-compatible
 # providers; claude-gomodel points it at Command Code's API (see script).
-COPY claude-gomodel /usr/local/bin/claude-gomodel
-RUN chmod 755 /usr/local/bin/claude-gomodel \
-    && curl -fsSL https://gomodel.enterpilot.io/install.sh \
+RUN curl -fsSL https://gomodel.enterpilot.io/install.sh \
         | GOMODEL_INSTALL_DIR="${HOME}/.local/bin" sh
 
+# --- GoModel AI gateway + claude-gomodel launcher ---
 # Model tier overrides for claudem (haiku/sonnet/opus/fable), editable in place
+COPY claude-gomodel /usr/local/bin/claude-gomodel
 COPY claude-gomodel.conf /home/${USER_NAME}/.config/claude-gomodel.conf
+RUN chmod 755 /usr/local/bin/claude-gomodel
 
 # --- Add and switch to user ---
 RUN groupadd -g ${USER_ID} ${USER_NAME} && \
