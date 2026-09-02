@@ -1,0 +1,7 @@
+# Local Claude/Command Code state that shouldn't be committed
+.claude/
+.commandcode/
+.DS_Store
+
+# Stray dir created by an unquoted `~` expansion (see git history); nothing to commit
+~/
