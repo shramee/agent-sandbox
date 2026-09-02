@@ -24,8 +24,13 @@ BUILD=false
 CLEAN=false
 for arg in "$@"; do
     case "$arg" in
-        --build) BUILD=true ;;
-        --clean) CLEAN=true ;;
+        build|--build) BUILD=true ;;
+        clean|--clean) CLEAN=true ;;
+        *)
+            echo "ag-sbx: unknown argument '$arg'" >&2
+            echo "Usage: ag-sbx [--build] [--clean]" >&2
+            exit 1
+            ;;
     esac
 done
 
