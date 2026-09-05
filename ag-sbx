@@ -25,6 +25,9 @@ DIRNAME="$(basename "$DIR")"
 DNAME="$(printf '%s' "$DIRNAME" | tr -cd 'A-Za-z0-9_.-' | cut -c1-5 | tr 'A-Z' 'a-z')"
 HASH="$(printf '%s' "$DIR" | shasum -a 256 | cut -c1-4)"
 CONTAINER_NAME="sbx-${DNAME}-${HASH}"
+# Per-container staging for writable config copies (seeded from host once,
+# never synced back). Dropped on clean/build/update alongside the container.
+STAGE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/ag-sbx/$CONTAINER_NAME"
 
 usage() {
     cat <<EOF
@@ -149,6 +152,10 @@ if ! $DRYRUN && { $CLEAN || $BUILD || $UPDATE; } && docker ps -a --format '{{.Na
     echo "Removing container $CONTAINER_NAME for $DIR"
     docker rm -f "$CONTAINER_NAME" >/dev/null
 fi
+if ! $DRYRUN && { $CLEAN || $BUILD || $UPDATE; } && [ -d "$STAGE_ROOT" ]; then
+    echo "Removing staged config $STAGE_ROOT"
+    rm -rf "$STAGE_ROOT"
+fi
 
 if ! $DRYRUN && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
@@ -188,10 +195,26 @@ else
         [ -e "$1" ] || : >"$1"
         run_args+=(--mount "$(mount "$1" "$2")")
     }
+    # Staged writable copy: seed a per-container copy of a host config file so
+    # in-sandbox writes (e.g. /model, /config) succeed without ever reaching
+    # the host file the sandbox trusts (hooks, permissions, MCP).
+    stage_file() {  # stage_file <host file> <home-relative path>
+        mkdir -p "$STAGE_ROOT/$(dirname "$2")"
+        chmod 700 "$STAGE_ROOT"
+        [ -e "$STAGE_ROOT/$2" ] || { [ -e "$1" ] && cp -p "$1" "$STAGE_ROOT/$2" || : >"$STAGE_ROOT/$2"; }
+        run_args+=(--mount "$(mount "$STAGE_ROOT/$2" "$AGENT_HOME/$2")")
+    }
     overlay_dir "$HOME/.claude/projects"        "$AGENT_HOME/.claude/projects"
     overlay_dir "$HOME/.claude/sessions"        "$AGENT_HOME/.claude/sessions"
     overlay_dir "$HOME/.claude/shell-snapshots" "$AGENT_HOME/.claude/shell-snapshots"
-    overlay_dir "$HOME/.commandcode/projects"   "$AGENT_HOME/.commandcode/projects"
+    overlay_dir "$HOME/.claude/plans"           "$AGENT_HOME/.claude/plans"
+    overlay_dir "$HOME/.claude/file-history"    "$AGENT_HOME/.claude/file-history"
+    overlay_dir "$HOME/.claude/session-env"     "$AGENT_HOME/.claude/session-env"
+    overlay_dir "$HOME/.claude/tasks"           "$AGENT_HOME/.claude/tasks"
+    overlay_dir "$HOME/.claude/backups"         "$AGENT_HOME/.claude/backups"
+    overlay_dir "$HOME/.commandcode/projects"     "$AGENT_HOME/.commandcode/projects"
+    overlay_dir "$HOME/.commandcode/plans"        "$AGENT_HOME/.commandcode/plans"
+    overlay_dir "$HOME/.commandcode/file-history" "$AGENT_HOME/.commandcode/file-history"
     overlay_file "$HOME/.claude/history.jsonl"      "$AGENT_HOME/.claude/history.jsonl"
     overlay_file "$HOME/.commandcode/history.jsonl" "$AGENT_HOME/.commandcode/history.jsonl"
     # Claude Code refreshes its OAuth token by rewriting this file on Linux
@@ -202,10 +225,16 @@ else
     [ -e "$HOME/.claude/.credentials.json" ] && \
         overlay_file "$HOME/.claude/.credentials.json" "$AGENT_HOME/.claude/.credentials.json"
 
+    # Writable config copies: /model and /config succeed inside the sandbox
+    # (container-local only) while the host-trusted originals stay untouched.
+    # Model changes in the sandbox don't alter the host default.
+    stage_file "$HOME/.claude/settings.json" ".claude/settings.json"
+    stage_file "$HOME/.commandcode/config.json" ".commandcode/config.json"
+
     # The project dir itself stays live rw too.
     overlay_dir "$DIR" "$DIR"
 
-    [ -f "$HOME/.claude.json" ] && run_args+=(--mount "$(mount_read "$HOME/.claude.json" "$AGENT_HOME/.claude.json")")
+    [ -f "$HOME/.claude.json" ] && stage_file "$HOME/.claude.json" ".claude.json"
     [ -f "$HOME/.gitconfig" ] && run_args+=(--mount "$(mount_read "$HOME/.gitconfig" "$AGENT_HOME/.gitconfig")")
 
     if $DRYRUN; then
