@@ -215,6 +215,20 @@ else
     overlay_dir "$HOME/.commandcode/projects"     "$AGENT_HOME/.commandcode/projects"
     overlay_dir "$HOME/.commandcode/plans"        "$AGENT_HOME/.commandcode/plans"
     overlay_dir "$HOME/.commandcode/file-history" "$AGENT_HOME/.commandcode/file-history"
+    # opencode: global config read-only (writable copy staged below), data and
+    # state live rw (sessions, snapshots, auth, recent-model state).
+    # Soft-created: opencode may never have run on the host yet.
+    mkdir -p "$HOME/.config/opencode" "$HOME/.local/share/opencode" "$HOME/.local/state/opencode"
+    run_args+=(--mount "$(mount_read "$HOME/.config/opencode" "$AGENT_HOME/.config/opencode")")
+    run_args+=(--mount "$(mount "$HOME/.local/share/opencode" "$AGENT_HOME/.local/share/opencode")")
+    run_args+=(--mount "$(mount "$HOME/.local/state/opencode" "$AGENT_HOME/.local/state/opencode")")
+    # opencode-managed plugin install surface stays live so auto-install works.
+    [ -d "$HOME/.config/opencode/node_modules" ] && \
+        overlay_dir "$HOME/.config/opencode/node_modules" "$AGENT_HOME/.config/opencode/node_modules"
+    [ -e "$HOME/.config/opencode/package.json" ] && \
+        overlay_file "$HOME/.config/opencode/package.json" "$AGENT_HOME/.config/opencode/package.json"
+    [ -e "$HOME/.config/opencode/package-lock.json" ] && \
+        overlay_file "$HOME/.config/opencode/package-lock.json" "$AGENT_HOME/.config/opencode/package-lock.json"
     overlay_file "$HOME/.claude/history.jsonl"      "$AGENT_HOME/.claude/history.jsonl"
     overlay_file "$HOME/.commandcode/history.jsonl" "$AGENT_HOME/.commandcode/history.jsonl"
     # Claude Code refreshes its OAuth token by rewriting this file on Linux
@@ -230,6 +244,7 @@ else
     # Model changes in the sandbox don't alter the host default.
     stage_file "$HOME/.claude/settings.json" ".claude/settings.json"
     stage_file "$HOME/.commandcode/config.json" ".commandcode/config.json"
+    stage_file "$HOME/.config/opencode/opencode.json" ".config/opencode/opencode.json"
 
     # The project dir itself stays live rw too.
     overlay_dir "$DIR" "$DIR"
@@ -277,6 +292,7 @@ if [ -t 0 ] && [ -t 1 ]; then
 │  cmdy    │ command-code --yolo --no-onboarding   │
 │  clauded │ claude --dangerously-skip-permissions │
 │  claudem │ claude via Command Code API (gomodel) │
+│  opy     │ opencode --yolo                     │
 │  exit    │ Return to your host system            │
 └──────────────────────────────────────────────────┘
 ";zsh'
