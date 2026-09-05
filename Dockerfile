@@ -34,6 +34,9 @@ RUN corepack enable \
 # --- Claude Code CLI (from the official installer) ---
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
+# --- opencode CLI (official binary installer, already on PATH, no rc edits) ---
+RUN curl -fsSL https://opencode.ai/install | OPENCODE_INSTALL_DIR=/usr/local/bin bash -s -- --no-modify-path
+
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
 
 # GoModel serves an Anthropic-compatible API backed by OpenAI-compatible
@@ -69,7 +72,7 @@ WORKDIR ${HOME}
 RUN printf 'export ZSH="/home/%s/.oh-my-zsh"\n\nZSH_THEME="robbyrussell"\n\nplugins=(git)\n\nsource $ZSH/oh-my-zsh.sh\n' "${USER_NAME}" > /home/${USER_NAME}/.zshrc-default
 
 # Agent sandbox aliases
-RUN printf '#!/bin/zsh\n\nalias cmdy="command-code --yolo --no-onboarding"\nalias clauded="claude --dangerously-skip-permissions"\nalias claudem="claude-gomodel --dangerously-skip-permissions"\n' > /home/${USER_NAME}/.oh-my-zsh/custom/aliases.zsh
+RUN printf '#!/bin/zsh\n\nalias cmdy="command-code --yolo --no-onboarding"\nalias clauded="claude --dangerously-skip-permissions"\nalias claudem="claude-gomodel --dangerously-skip-permissions"\nalias opy="opencode --yolo"\n' > /home/${USER_NAME}/.oh-my-zsh/custom/aliases.zsh
 
 # Keep the container running
 CMD ["sleep", "infinity"]
