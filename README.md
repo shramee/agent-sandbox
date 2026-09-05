@@ -1,7 +1,7 @@
 # Agent sandbox container
 
 A sandboxed dev container for coding agents: Node/Python/Go/Foundry toolchain
-plus the Claude Code CLI and rtk, ready to bind-mount a project directory into.
+plus the Claude Code CLI, opencode, and rtk, ready to bind-mount a project directory into.
 
 Source & Dockerfile: https://github.com/shramee/agent-sandbox
 
@@ -17,13 +17,15 @@ Source & Dockerfile: https://github.com/shramee/agent-sandbox
 | **Claude Code**  | Installed via the official installer (stable) |
 | **Command Code** | Installed globally via pnpm (`command-code@latest`) |
 | **GoModel**      | AI gateway serving Anthropic-compatible API (see `claude-gomodel`) |
+| **opencode**     | Installed via the official binary installer (`/usr/local/bin`) |
 | **rtk**          | Installed via the official curl installer     |
 | **Sudo**         | Passwordless for the `agent` user (UID 1001)  |
 
 Handy aliases baked into the shell:
 - `cmdy` (`command-code --yolo --no-onboarding`),
-- `clauded` (`claude --dangerously-skip-permissions`) and,
-- `claudem` (`claude-gomodel --dangerously-skip-permissions`).
+- `clauded` (`claude --dangerously-skip-permissions`),
+- `claudem` (`claude-gomodel --dangerously-skip-permissions`) and,
+- `opy` (`opencode --yolo`).
 
 ### `claudem` — Claude Code via the Command Code API
 
@@ -72,7 +74,7 @@ ag-sbx update   # everywhere else: pull the new image, recreate the container
 ```
 
 The image bundles a Node/Python/Go/Foundry toolchain plus the Claude Code
-CLI and rtk (see `Dockerfile`).
+CLI, opencode, and rtk (see `Dockerfile`).
 
 ```sh
 # 1. Install
@@ -100,6 +102,7 @@ Mounted **read-only** from the host (if present):
 
 - `~/.claude` — config, `.credentials.json`, keybindings, plugins, CLAUDE.md
 - `~/.commandcode` — Command Code config + `auth.json`
+- `~/.config/opencode` — opencode global config
 - `~/.claude.json` (read-only)
 - `~/.gitconfig` (read-only)
 
@@ -108,9 +111,31 @@ Mounted **read-write** as live overlays (created if missing):
 - `~/.claude/projects/` — per-project chat transcripts (`*.jsonl`) → `/resume`
 - `~/.claude/sessions/` — session/encryption state
 - `~/.claude/shell-snapshots/` — shell state for background commands
+- `~/.claude/plans/` — plan-mode files, so saving plans works
+- `~/.claude/file-history/`, `session-env/`, `tasks/`, `backups/` — checkpoint
+  restore, per-session env, task lists, config-migration backups
 - `~/.commandcode/projects/` — Command Code transcripts
+- `~/.commandcode/plans/`, `~/.commandcode/file-history/` — plans + file history
 - `~/.claude/history.jsonl`, `~/.commandcode/history.jsonl` — command history
+- `~/.local/share/opencode/` — opencode sessions, snapshots, auth (live)
+- `~/.local/state/opencode/` — opencode recent-model + UI state (live)
+- `~/.config/opencode/node_modules/`, `package.json`, `package-lock.json` —
+  opencode-managed plugin install surface (live)
 - the project directory you launched from
+
+**Staged writable copies** (seeded once per container, never synced back):
+
+- `~/.claude/settings.json`, `~/.claude.json`,
+  `~/.commandcode/config.json`, `~/.config/opencode/opencode.json`
+
+These hold hooks, permissions, and MCP servers your host trusts, so the
+sandbox gets a per-container copy (under `~/.cache/ag-sbx/<container>/`)
+instead of a live handle: `/model` and `/config` succeed inside the sandbox,
+but the host originals stay untouched. Consequence: a model switch in the
+sandbox is sandbox-local and doesn't change your host default; plans,
+transcripts, and sessions above do round-trip. `clean`/`build`/`update` drop
+the staged copies along with the container, so the next create re-seeds from
+the host. Recreate existing containers (`ag-sbx clean`) to pick up new mounts.
 
 Because a bind mount can't nest, the base `~/.claude` / `~/.commandcode`
 mounts are read-only and the live paths above are re-mounted read-write over
