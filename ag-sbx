@@ -162,6 +162,14 @@ if ! $DRYRUN && { $CLEAN || $BUILD || $UPDATE; } && [ -d "$STAGE_ROOT" ]; then
     rm -rf "$STAGE_ROOT"
 fi
 
+# Containers created before OC_DATA existed share the host opencode DB;
+# recreate them rather than reattach and keep corrupting it.
+if ! $DRYRUN && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME" && \
+    docker inspect -f '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' "$CONTAINER_NAME" | grep -qx "$HOME/.local/share/opencode"; then
+    echo "Recreating $CONTAINER_NAME: it shares the host opencode DB (corruption risk)"
+    docker rm -f "$CONTAINER_NAME" >/dev/null
+fi
+
 if ! $DRYRUN && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
         echo "Reusing running container $CONTAINER_NAME for $DIR"
