@@ -28,6 +28,11 @@ CONTAINER_NAME="sbx-${DNAME}-${HASH}"
 # Per-container staging for writable config copies (seeded from host once,
 # never synced back). Dropped on clean/build/update alongside the container.
 STAGE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/ag-sbx/$CONTAINER_NAME"
+# Per-container opencode data dir. opencode keeps its sessions in a WAL-mode
+# SQLite DB, and SQLite locking/shared-memory doesn't work across the Docker
+# Desktop bind mount, so sharing the host's ~/.local/share/opencode corrupts
+# it. Kept outside STAGE_ROOT so sandbox sessions survive clean/build/update.
+OC_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/ag-sbx/$CONTAINER_NAME/opencode"
 
 usage() {
     cat <<EOF
@@ -215,12 +220,15 @@ else
     overlay_dir "$HOME/.commandcode/projects"     "$AGENT_HOME/.commandcode/projects"
     overlay_dir "$HOME/.commandcode/plans"        "$AGENT_HOME/.commandcode/plans"
     overlay_dir "$HOME/.commandcode/file-history" "$AGENT_HOME/.commandcode/file-history"
-    # opencode: global config read-only (writable copy staged below), data and
-    # state live rw (sessions, snapshots, auth, recent-model state).
+    # opencode: global config read-only (writable copy staged below), state
+    # live rw (recent-model state). Data (sessions DB, snapshots) is
+    # per-container, see OC_DATA; auth.json is seeded from the host once.
     # Soft-created: opencode may never have run on the host yet.
-    mkdir -p "$HOME/.config/opencode" "$HOME/.local/share/opencode" "$HOME/.local/state/opencode"
+    mkdir -p "$HOME/.config/opencode" "$HOME/.local/state/opencode" "$OC_DATA"
+    chmod 700 "$OC_DATA"
+    [ -e "$OC_DATA/auth.json" ] || { [ -e "$HOME/.local/share/opencode/auth.json" ] && cp -p "$HOME/.local/share/opencode/auth.json" "$OC_DATA/auth.json"; } || true
     run_args+=(--mount "$(mount_read "$HOME/.config/opencode" "$AGENT_HOME/.config/opencode")")
-    run_args+=(--mount "$(mount "$HOME/.local/share/opencode" "$AGENT_HOME/.local/share/opencode")")
+    run_args+=(--mount "$(mount "$OC_DATA" "$AGENT_HOME/.local/share/opencode")")
     run_args+=(--mount "$(mount "$HOME/.local/state/opencode" "$AGENT_HOME/.local/state/opencode")")
     # opencode-managed plugin install surface stays live so auto-install works.
     [ -d "$HOME/.config/opencode/node_modules" ] && \
