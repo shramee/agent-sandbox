@@ -117,7 +117,13 @@ Mounted **read-write** as live overlays (created if missing):
 - `~/.commandcode/projects/` — Command Code transcripts
 - `~/.commandcode/plans/`, `~/.commandcode/file-history/` — plans + file history
 - `~/.claude/history.jsonl`, `~/.commandcode/history.jsonl` — command history
-- `~/.local/share/opencode/` — opencode sessions, snapshots, auth (live)
+- `~/.local/share/ag-sbx/<container>/opencode/` → `~/.local/share/opencode/` —
+  opencode sessions DB + snapshots, **per container**, not the host's: SQLite's
+  WAL locking doesn't work across the Docker Desktop bind mount, so sharing the
+  host DB corrupts it. Sandbox opencode sessions therefore don't show up in
+  host opencode. `auth.json` is seeded from the host on first create.
+  Survives `clean`/`build`/`update`. Old containers that still share the host
+  DB are recreated automatically on next launch.
 - `~/.local/state/opencode/` — opencode recent-model + UI state (live)
 - `~/.config/opencode/node_modules/`, `package.json`, `package-lock.json` —
   opencode-managed plugin install surface (live)
