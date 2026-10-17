@@ -31,6 +31,11 @@ RUN corepack enable \
     && corepack prepare pnpm@latest --activate \
     && pnpm i -g command-code@latest
 
+# --- Codex CLI + GitHub Copilot CLI ---
+# npm rather than pnpm: both ship platform binaries via postinstall scripts, and
+# pnpm 10 blocks dependency build scripts unless explicitly allowed.
+RUN npm i -g @openai/codex@latest @github/copilot@latest
+
 # --- Claude Code CLI (from the official installer) ---
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
