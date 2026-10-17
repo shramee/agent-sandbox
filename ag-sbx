@@ -52,6 +52,8 @@ Usage: ag-sbx [command] [-- cmd args...]   (-- prefixed flags work too)
   update       Pull the latest image from Docker Hub and recreate this
                directory's container on it.
   clean        Remove this directory's container so it's recreated fresh.
+  sync         Copy opencode sessions created inside the sandbox into the host
+               opencode DB. Also runs automatically when the shell exits.
   help         Show this help.
   dry-run      Print the container name and mount list that would be used,
                without touching docker.
@@ -68,6 +70,7 @@ BUILD=false
 CLEAN=false
 DEPLOY=false
 UPDATE=false
+SYNC=false
 DRYRUN=false
 RUNCMD=()
 for arg in "$@"; do
@@ -76,6 +79,7 @@ for arg in "$@"; do
         clean|--clean) CLEAN=true ;;
         deploy|--deploy) BUILD=true; DEPLOY=true ;;
         update|--update) UPDATE=true ;;
+        sync|--sync) SYNC=true ;;
         dry-run|--dry-run) DRYRUN=true ;;
         help|-h|--help) usage; exit 0 ;;
         --)
@@ -96,7 +100,7 @@ done
 if [ "${#RUNCMD[@]}" -gt 0 ]; then
     while [ "${#RUNCMD[@]}" -gt 0 ]; do
         case "${RUNCMD[0]}" in
-            build|--build|clean|--clean|deploy|--deploy|update|--update|help|-h|--help|dry-run|--dry-run|--)
+            build|--build|clean|--clean|deploy|--deploy|update|--update|sync|--sync|help|-h|--help|dry-run|--dry-run|--)
                 RUNCMD=("${RUNCMD[@]:1}")
                 ;;
             *) break ;;
@@ -155,9 +159,52 @@ sync_claude_credentials() {
 }
 sync_claude_credentials
 
+# Move opencode sessions created inside the sandbox into the host's opencode DB.
+# The two DBs stay private — exactly one process writes each, which is what
+# keeps them uncorrupted — so sessions are transferred through opencode's
+# sanctioned export/import API rather than by sharing the files. Import runs on
+# the host, so the host's background service stays the only writer of its DB.
+# Session ids already synced are remembered in $OC_ROOT/synced-sessions, which
+# makes repeat runs cheap and idempotent (import preserves the session id).
+sync_opencode() {
+    if $DRYRUN; then return 0; fi
+    docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME" || return 0
+
+    # No opencode in the image, or it was never launched in this sandbox.
+    docker exec -w "$DIR" "$CONTAINER_NAME" sh -c 'command -v opencode' >/dev/null 2>&1 || return 0
+
+    local ledger="$OC_ROOT/synced-sessions" ids id synced=0
+    mkdir -p "$OC_ROOT"
+    : >>"$ledger"
+    ids="$(docker exec -w "$DIR" "$CONTAINER_NAME" opencode session list 2>/dev/null \
+        | awk '$1 ~ /^ses_/ {print $1}')" || return 0
+    [ -n "$ids" ] || return 0
+
+    if ! command -v opencode >/dev/null 2>&1; then
+        echo "ag-sbx: host opencode not found — skipping session sync" >&2
+        return 0
+    fi
+
+    for id in $ids; do
+        if grep -qx "$id" "$ledger"; then continue; fi
+        if docker exec -w "$DIR" "$CONTAINER_NAME" opencode session export "$id" >"$OC_ROOT/$id.json" 2>/dev/null \
+            && [ -s "$OC_ROOT/$id.json" ] \
+            && opencode session import "$OC_ROOT/$id.json" --directory "$DIR" >/dev/null 2>&1; then
+            printf '%s\n' "$id" >>"$ledger"
+            synced=$((synced + 1))
+        fi
+        rm -f "$OC_ROOT/$id.json"
+    done
+    [ "$synced" -eq 0 ] || echo "Synced $synced opencode session(s) into the host DB"
+    return 0
+}
+
 # Containers pin their image at creation time, so build/deploy/update must
-# also drop the old container or the new image never gets used.
+# also drop the old container or the new image never gets used. Pull any
+# sandbox sessions out into the host DB first — the container's own opencode
+# data survives, but a stopped container can't be queried for them.
 if ! $DRYRUN && { $CLEAN || $BUILD || $UPDATE; } && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    sync_opencode
     echo "Removing container $CONTAINER_NAME for $DIR"
     docker rm -f "$CONTAINER_NAME" >/dev/null
 fi
@@ -291,6 +338,12 @@ else
     docker run -d --name "$CONTAINER_NAME" "${run_args[@]}" -w "$DIR" "$IMAGE"
 fi
 
+# `ag-sbx sync` — pull sandbox sessions into the host DB and stop.
+if $SYNC; then
+    sync_opencode
+    exit 0
+fi
+
 # Interactive only when stdin+stdout are a terminal. When stdout is piped
 # (e.g. `ag-sbx ... | grep`), skip -t and the banner so we don't emit escape
 # noise or prompt through the pipe.
@@ -302,6 +355,8 @@ else
 fi
 
 # Run a non-interactive command if one was given (no TTY juggling needed).
+# No sync here: these are one-shot commands, and the interactive exit below
+# (or an explicit `ag-sbx sync`) is where sandbox sessions get pulled across.
 if [ "${#RUNCMD[@]}" -gt 0 ]; then
     exec docker exec "${TTY_FLAGS[@]}" -w "$DIR" "$CONTAINER_NAME" "${RUNCMD[@]}"
 fi
@@ -322,4 +377,9 @@ if [ -t 0 ] && [ -t 1 ]; then
 └──────────────────────────────────────────────────┘
 ";zsh'
 fi
-exec docker exec "${TTY_FLAGS[@]}" -w "$DIR" "$CONTAINER_NAME" sh -c "$SHELL_CMD"
+# Not `exec`: the sandbox shell exiting is the "run finished" moment, so pull
+# any opencode sessions created inside into the host DB before returning.
+docker exec "${TTY_FLAGS[@]}" -w "$DIR" "$CONTAINER_NAME" sh -c "$SHELL_CMD"
+status=$?
+sync_opencode
+exit "$status"
