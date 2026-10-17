@@ -79,7 +79,7 @@ WORKDIR ${HOME}
 RUN printf 'export ZSH="/home/%s/.oh-my-zsh"\n\nZSH_THEME="robbyrussell"\n\nplugins=(git)\n\nsource $ZSH/oh-my-zsh.sh\n' "${USER_NAME}" > /home/${USER_NAME}/.zshrc-default
 
 # Agent sandbox aliases
-RUN printf '#!/bin/zsh\n\nalias cmdy="command-code --yolo --no-onboarding"\nalias clauded="claude --dangerously-skip-permissions"\nalias claudem="claude-gomodel --dangerously-skip-permissions"\nalias opy="opencode --yolo"\n' > /home/${USER_NAME}/.oh-my-zsh/custom/aliases.zsh
+RUN printf '#!/bin/zsh\n\nalias cmdy="command-code --yolo --no-onboarding"\nalias clauded="claude --dangerously-skip-permissions"\nalias claudem="claude-gomodel --dangerously-skip-permissions"\nalias opy="opencode --yolo"\nalias cxy="codex --dangerously-bypass-approvals-and-sandbox"\nalias cpy="copilot --yolo"\n' > /home/${USER_NAME}/.oh-my-zsh/custom/aliases.zsh
 
 # Keep the container running
 CMD ["sleep", "infinity"]
