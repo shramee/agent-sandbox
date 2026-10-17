@@ -9,7 +9,7 @@ ARG USER_NAME=agent
 ENV HOME="/home/${USER_NAME}" \
     PNPM_HOME="/home/${USER_NAME}/.local/share/pnpm" \
     GOPATH="/home/${USER_NAME}/go"
-ENV PATH="$PNPM_HOME/bin:$GOPATH/bin:${HOME}/.local/bin:${HOME}/.foundry/bin:/usr/local/go/bin:${PATH}"
+ENV PATH="$PNPM_HOME/bin:$GOPATH/bin:${HOME}/.local/bin:${HOME}/.opencode/bin:${HOME}/.foundry/bin:/usr/local/go/bin:${PATH}"
 
 # --- Install base dependencies ---
 RUN apt-get update && apt-get install -y \
@@ -39,8 +39,10 @@ RUN npm i -g @openai/codex@latest @github/copilot@latest
 # --- Claude Code CLI (from the official installer) ---
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
-# --- opencode CLI (official binary installer, already on PATH, no rc edits) ---
-RUN curl -fsSL https://opencode.ai/install | OPENCODE_INSTALL_DIR=/usr/local/bin bash -s -- --no-modify-path
+# --- opencode CLI (official binary installer; it hardcodes the install dir to
+# ${HOME}/.opencode/bin — OPENCODE_INSTALL_DIR is no longer honored — so that
+# dir is added to PATH above) ---
+RUN curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
 
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
 
