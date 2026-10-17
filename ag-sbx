@@ -28,11 +28,15 @@ CONTAINER_NAME="sbx-${DNAME}-${HASH}"
 # Per-container staging for writable config copies (seeded from host once,
 # never synced back). Dropped on clean/build/update alongside the container.
 STAGE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/ag-sbx/$CONTAINER_NAME"
-# Per-container opencode data dir. opencode keeps its sessions in a WAL-mode
-# SQLite DB, and SQLite locking/shared-memory doesn't work across the Docker
-# Desktop bind mount, so sharing the host's ~/.local/share/opencode corrupts
-# it. Kept outside STAGE_ROOT so sandbox sessions survive clean/build/update.
-OC_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/ag-sbx/$CONTAINER_NAME/opencode"
+# Per-container opencode dirs. opencode keeps its sessions in a WAL-mode SQLite
+# DB, and SQLite locking/shared-memory doesn't work across the Docker Desktop
+# bind mount, so sharing the host's ~/.local/share/opencode corrupts it. The
+# state dir has to be per-container too: it holds service.json, and a sandbox
+# opencode starting its own background service would otherwise overwrite the
+# host's. Kept outside STAGE_ROOT so sandbox sessions survive clean/build/update.
+OC_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/ag-sbx/$CONTAINER_NAME"
+OC_DATA="$OC_ROOT/opencode"
+OC_STATE="$OC_ROOT/state/opencode"
 
 usage() {
     cat <<EOF
@@ -162,12 +166,16 @@ if ! $DRYRUN && { $CLEAN || $BUILD || $UPDATE; } && [ -d "$STAGE_ROOT" ]; then
     rm -rf "$STAGE_ROOT"
 fi
 
-# Containers created before OC_DATA existed share the host opencode DB;
-# recreate them rather than reattach and keep corrupting it.
-if ! $DRYRUN && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME" && \
-    docker inspect -f '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' "$CONTAINER_NAME" | grep -qx "$HOME/.local/share/opencode"; then
-    echo "Recreating $CONTAINER_NAME: it shares the host opencode DB (corruption risk)"
-    docker rm -f "$CONTAINER_NAME" >/dev/null
+# Containers created before OC_DATA/OC_STATE existed mount the host's opencode
+# data dir (DB corruption) and/or state dir (the sandbox's service.json
+# clobbers the host's); recreate them rather than reattach.
+if ! $DRYRUN && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    oc_mounts="$(docker inspect -f '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' "$CONTAINER_NAME" 2>/dev/null || true)"
+    if printf '%s\n' "$oc_mounts" | grep -qx "$HOME/.local/share/opencode" || \
+        printf '%s\n' "$oc_mounts" | grep -qx "$HOME/.local/state/opencode"; then
+        echo "Recreating $CONTAINER_NAME: it shares the host opencode data/state dir"
+        docker rm -f "$CONTAINER_NAME" >/dev/null
+    fi
 fi
 
 if ! $DRYRUN && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
@@ -228,16 +236,17 @@ else
     overlay_dir "$HOME/.commandcode/projects"     "$AGENT_HOME/.commandcode/projects"
     overlay_dir "$HOME/.commandcode/plans"        "$AGENT_HOME/.commandcode/plans"
     overlay_dir "$HOME/.commandcode/file-history" "$AGENT_HOME/.commandcode/file-history"
-    # opencode: global config read-only (writable copy staged below), state
-    # live rw (recent-model state). Data (sessions DB, snapshots) is
-    # per-container, see OC_DATA; auth.json is seeded from the host once.
+    # opencode: global config read-only (writable copy staged below). Data
+    # (sessions DB, snapshots) and state (service.json, recent-model state) are
+    # both per-container — see OC_DATA/OC_STATE. auth.json is seeded from the
+    # host on first create so the sandbox starts logged in.
     # Soft-created: opencode may never have run on the host yet.
-    mkdir -p "$HOME/.config/opencode" "$HOME/.local/state/opencode" "$OC_DATA"
-    chmod 700 "$OC_DATA"
+    mkdir -p "$HOME/.config/opencode" "$OC_DATA" "$OC_STATE"
+    chmod 700 "$OC_ROOT"
     [ -e "$OC_DATA/auth.json" ] || { [ -e "$HOME/.local/share/opencode/auth.json" ] && cp -p "$HOME/.local/share/opencode/auth.json" "$OC_DATA/auth.json"; } || true
     run_args+=(--mount "$(mount_read "$HOME/.config/opencode" "$AGENT_HOME/.config/opencode")")
-    run_args+=(--mount "$(mount "$OC_DATA" "$AGENT_HOME/.local/share/opencode")")
-    run_args+=(--mount "$(mount "$HOME/.local/state/opencode" "$AGENT_HOME/.local/state/opencode")")
+    run_args+=(--mount "$(mount "$OC_DATA"  "$AGENT_HOME/.local/share/opencode")")
+    run_args+=(--mount "$(mount "$OC_STATE" "$AGENT_HOME/.local/state/opencode")")
     # opencode-managed plugin install surface stays live so auto-install works.
     [ -d "$HOME/.config/opencode/node_modules" ] && \
         overlay_dir "$HOME/.config/opencode/node_modules" "$AGENT_HOME/.config/opencode/node_modules"
