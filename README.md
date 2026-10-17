@@ -1,7 +1,8 @@
 # Agent sandbox container
 
-A sandboxed dev container for coding agents: Node/Python/Go/Foundry toolchain
-plus the Claude Code CLI, opencode, and rtk, ready to bind-mount a project directory into.
+A sandboxed dev container for coding agents: Node/Python/Go/Rust/Foundry
+toolchain plus the Claude Code CLI, opencode, and rtk, ready to bind-mount a
+project directory into.
 
 Source & Dockerfile: https://github.com/shramee/agent-sandbox
 
@@ -13,6 +14,7 @@ Source & Dockerfile: https://github.com/shramee/agent-sandbox
 | **Node.js**      | v26 with `corepack` (pnpm enabled)            |
 | **Python**       | 3.14                                          |
 | **Go**           | 1.26 (`/usr/local/go`)                        |
+| **Rust**         | stable via rustup (`~/.cargo`), with rustfmt + clippy |
 | **Foundry**      | Solidity toolchain (`forge`, `cast`, `anvil`) |
 | **Claude Code**  | Installed via the official installer (stable) |
 | **Command Code** | Installed globally via pnpm (`command-code@latest`) |
@@ -73,7 +75,7 @@ ag-sbx deploy   # on the machine with the changes: build + push
 ag-sbx update   # everywhere else: pull the new image, recreate the container
 ```
 
-The image bundles a Node/Python/Go/Foundry toolchain plus the Claude Code
+The image bundles a Node/Python/Go/Rust/Foundry toolchain plus the Claude Code
 CLI, opencode, and rtk (see `Dockerfile`).
 
 ```sh

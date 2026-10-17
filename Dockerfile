@@ -1,4 +1,4 @@
-# Generic agent sandbox: Node/Python/Go/Foundry toolchain + Claude Code,
+# Generic agent sandbox: Node/Python/Go/Rust/Foundry toolchain + Claude Code,
 # for running coding agents against whatever project directory gets mounted in.
 FROM nikolaik/python-nodejs:python3.14-nodejs26
 
