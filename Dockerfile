@@ -68,6 +68,16 @@ RUN echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 USER ${USER_NAME}
 WORKDIR ${HOME}
 
+# --- Rust (rustup, stable) for Rust/Stylus projects ---
+# Installed as the agent user so the toolchain lands in ${HOME}/.cargo and
+# ${HOME}/.rustup instead of root's home. --no-modify-path keeps the PATH edit
+# in this Dockerfile rather than in a shell rc file, matching Go/Foundry above.
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path \
+        --profile minimal --default-toolchain stable \
+    && "${HOME}/.cargo/bin/rustup" component add rustfmt clippy \
+    && rm -rf "${HOME}/.cargo/registry/cache" "${HOME}/.cargo/registry/src"
+ENV PATH="${HOME}/.cargo/bin:${PATH}"
+
 # Set up a default .zshrc if one isn't mounted, to ensure login works
 RUN printf 'export ZSH="/home/%s/.oh-my-zsh"\n\nZSH_THEME="robbyrussell"\n\nplugins=(git)\n\nsource $ZSH/oh-my-zsh.sh\n' "${USER_NAME}" > /home/${USER_NAME}/.zshrc-default
 
