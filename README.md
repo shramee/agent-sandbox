@@ -168,16 +168,21 @@ would otherwise be invisible to the host. They are copied across with
 opencode's own `session export` / `session import` — **not** by sharing the DB
 files, which is exactly what corrupts them.
 
+The export side runs the *host's* opencode against a throwaway copy of the
+sandbox DB, so the host never touches the sandbox's live DB (or its locks) and
+sync doesn't depend on the sandbox image's opencode version. Import runs on the
+host, so the host's background service stays the single writer of the host DB.
+
 `ag-sbx` does this automatically when the interactive shell exits (and before
 `clean`/`build`/`update` removes the container). To do it on demand, run
-`ag-sbx sync` from the project directory. Only new sessions are moved:
+`ag-sbx sync` from the project directory. Only new sessions are moved, and
 already-synced ids are recorded in
-`~/.local/share/ag-sbx/<container>/synced-sessions`, and import preserves the
-session id, so repeat runs are cheap and idempotent.
+`~/.local/share/ag-sbx/<container>/synced-sessions`; import preserves the
+session id, so repeat runs are cheap and idempotent. A pass that fails anywhere
+is reported and retried on the next run.
 
-Import runs on the host, so the host's background service stays the single
-writer of the host DB. Sync is one-way (sandbox → host); the sandbox DB keeps
-its own copy of everything.
+Sync is one-way (sandbox → host); the sandbox DB keeps its own copy of
+everything.
 
 ## Quick start container
 
