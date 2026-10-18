@@ -69,6 +69,8 @@ It takes an optional command, so you can run things non-interactively too:
   directory's container on it. Useful after a deploy elsewhere: a plain run
   only pulls when the image is missing locally.
 - `ag-sbx clean` — remove this directory's container so it's recreated fresh.
+- `ag-sbx sync` — copy opencode sessions created inside the sandbox into the
+  host opencode DB (also runs automatically when the shell exits).
 - `ag-sbx <cmd>…` or `ag-sbx -- <cmd>…` — run a command in the container
   without dropping into a shell, e.g. `ag-sbx ls -la` or `ag-sbx python --version`.
 
@@ -126,11 +128,13 @@ Mounted **read-write** as live overlays (created if missing):
 - `~/.local/share/ag-sbx/<container>/opencode/` → `~/.local/share/opencode/` —
   opencode sessions DB + snapshots, **per container**, not the host's: SQLite's
   WAL locking doesn't work across the Docker Desktop bind mount, so sharing the
-  host DB corrupts it. Sandbox opencode sessions therefore don't show up in
-  host opencode. `auth.json` is seeded from the host on first create.
-  Survives `clean`/`build`/`update`. Old containers that still share the host
-  DB are recreated automatically on next launch.
-- `~/.local/state/opencode/` — opencode recent-model + UI state (live)
+  host DB corrupts it. `auth.json` is seeded from the host on first create.
+  Survives `clean`/`build`/`update`.
+- `~/.local/share/ag-sbx/<container>/state/opencode/` → `~/.local/state/opencode/`
+  — opencode's service record + recent-model/UI state, **per container** as well:
+  it holds `service.json`, so a sandbox opencode starting its own background
+  service would otherwise clobber the host's. Containers that still mount the
+  host's opencode data or state dir are recreated on the next launch.
 - `~/.config/opencode/node_modules/`, `package.json`, `package-lock.json` —
   opencode-managed plugin install surface (live)
 - the project directory you launched from
@@ -162,6 +166,29 @@ those credentials live in the Keychain instead, not in that file. On every
 `~/.claude/.credentials.json` on the host (prompting for confirmation the
 first time it creates that file) so the login carries over into the
 container via the read-only `~/.claude` mount above.
+
+### Sandbox opencode sessions sync back to the host
+
+Because the sandbox keeps its own opencode DB, sessions you create inside it
+would otherwise be invisible to the host. They are copied across with
+opencode's own `session export` / `session import` — **not** by sharing the DB
+files, which is exactly what corrupts them.
+
+The export side runs the *host's* opencode against a throwaway copy of the
+sandbox DB, so the host never touches the sandbox's live DB (or its locks) and
+sync doesn't depend on the sandbox image's opencode version. Import runs on the
+host, so the host's background service stays the single writer of the host DB.
+
+`ag-sbx` does this automatically when the interactive shell exits (and before
+`clean`/`build`/`update` removes the container). To do it on demand, run
+`ag-sbx sync` from the project directory. Only new sessions are moved, and
+already-synced ids are recorded in
+`~/.local/share/ag-sbx/<container>/synced-sessions`; import preserves the
+session id, so repeat runs are cheap and idempotent. A pass that fails anywhere
+is reported and retried on the next run.
+
+Sync is one-way (sandbox → host); the sandbox DB keeps its own copy of
+everything.
 
 ## Quick start container
 

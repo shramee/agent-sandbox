@@ -28,11 +28,15 @@ CONTAINER_NAME="sbx-${DNAME}-${HASH}"
 # Per-container staging for writable config copies (seeded from host once,
 # never synced back). Dropped on clean/build/update alongside the container.
 STAGE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/ag-sbx/$CONTAINER_NAME"
-# Per-container opencode data dir. opencode keeps its sessions in a WAL-mode
-# SQLite DB, and SQLite locking/shared-memory doesn't work across the Docker
-# Desktop bind mount, so sharing the host's ~/.local/share/opencode corrupts
-# it. Kept outside STAGE_ROOT so sandbox sessions survive clean/build/update.
-OC_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/ag-sbx/$CONTAINER_NAME/opencode"
+# Per-container opencode dirs. opencode keeps its sessions in a WAL-mode SQLite
+# DB, and SQLite locking/shared-memory doesn't work across the Docker Desktop
+# bind mount, so sharing the host's ~/.local/share/opencode corrupts it. The
+# state dir has to be per-container too: it holds service.json, and a sandbox
+# opencode starting its own background service would otherwise overwrite the
+# host's. Kept outside STAGE_ROOT so sandbox sessions survive clean/build/update.
+OC_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/ag-sbx/$CONTAINER_NAME"
+OC_DATA="$OC_ROOT/opencode"
+OC_STATE="$OC_ROOT/state/opencode"
 
 usage() {
     cat <<EOF
@@ -48,6 +52,8 @@ Usage: ag-sbx [command] [-- cmd args...]   (-- prefixed flags work too)
   update       Pull the latest image from Docker Hub and recreate this
                directory's container on it.
   clean        Remove this directory's container so it's recreated fresh.
+  sync         Copy opencode sessions created inside the sandbox into the host
+               opencode DB. Also runs automatically when the shell exits.
   help         Show this help.
   dry-run      Print the container name and mount list that would be used,
                without touching docker.
@@ -64,6 +70,7 @@ BUILD=false
 CLEAN=false
 DEPLOY=false
 UPDATE=false
+SYNC=false
 DRYRUN=false
 RUNCMD=()
 for arg in "$@"; do
@@ -72,6 +79,7 @@ for arg in "$@"; do
         clean|--clean) CLEAN=true ;;
         deploy|--deploy) BUILD=true; DEPLOY=true ;;
         update|--update) UPDATE=true ;;
+        sync|--sync) SYNC=true ;;
         dry-run|--dry-run) DRYRUN=true ;;
         help|-h|--help) usage; exit 0 ;;
         --)
@@ -92,12 +100,97 @@ done
 if [ "${#RUNCMD[@]}" -gt 0 ]; then
     while [ "${#RUNCMD[@]}" -gt 0 ]; do
         case "${RUNCMD[0]}" in
-            build|--build|clean|--clean|deploy|--deploy|update|--update|help|-h|--help|dry-run|--dry-run|--)
+            build|--build|clean|--clean|deploy|--deploy|update|--update|sync|--sync|help|-h|--help|dry-run|--dry-run|--)
                 RUNCMD=("${RUNCMD[@]:1}")
                 ;;
             *) break ;;
         esac
     done
+fi
+
+# Move opencode sessions created inside the sandbox into the host's opencode DB.
+# The two DBs stay private — exactly one process writes each, which is what
+# keeps them uncorrupted — so sessions are transferred through opencode's
+# sanctioned export/import API rather than by sharing the files. Import runs on
+# the host, so the host's background service stays the only writer of its DB.
+#
+# The export side reads a throwaway *copy* of the sandbox DB with the host's
+# opencode. Doing it on a copy keeps the host off the sandbox's live DB and its
+# locks, and using the host's opencode means sync doesn't depend on the
+# sandbox image: an older image ships an opencode too old to have
+# `session export`, but the host's can read its DB anyway.
+#
+# Session ids already synced are recorded in $OC_ROOT/synced-sessions, so
+# repeat runs are cheap and idempotent (import preserves the session id).
+db_sig() {  # cheap change-detector for a DB file
+    stat -f '%m-%z' "$1" 2>/dev/null || stat -c '%Y-%s' "$1" 2>/dev/null || echo ""
+}
+sync_opencode() {
+    if $DRYRUN; then return 0; fi
+    # No opencode was ever launched in this sandbox.
+    [ -e "$OC_DATA/opencode.db" ] || return 0
+
+    local ledger="$OC_ROOT/synced-sessions" sig_file="$OC_ROOT/synced-signature"
+    local scratch="$OC_ROOT/.read" sig ids id synced=0 failed=0
+    mkdir -p "$OC_ROOT"
+    : >>"$ledger"
+
+    # Skip the copy entirely when nothing has written to the sandbox DB since a
+    # pass in which everything synced.
+    sig="$(db_sig "$OC_DATA/opencode.db")"
+    if [ -n "$sig" ] && [ -f "$sig_file" ] && [ "$(cat "$sig_file")" = "$sig" ]; then
+        return 0
+    fi
+
+    if ! command -v opencode >/dev/null 2>&1; then
+        echo "ag-sbx: host opencode not found — skipping session sync" >&2
+        return 0
+    fi
+
+    rm -rf "$scratch"
+    mkdir -p "$scratch/data/opencode" "$scratch/state" "$scratch/config"
+    for f in opencode.db opencode.db-wal opencode.db-shm; do
+        [ -e "$OC_DATA/$f" ] && cp "$OC_DATA/$f" "$scratch/data/opencode/$f"
+    done
+    # Read the copy as if it were this host's opencode data dir, so the host's
+    # own DB, config and background service stay untouched.
+    oc_read() {  # oc_read <args...>
+        env XDG_DATA_HOME="$scratch/data" XDG_STATE_HOME="$scratch/state" \
+            XDG_CONFIG_HOME="$scratch/config" opencode "$@"
+    }
+
+    if ! ids="$(oc_read session list --standalone 2>/dev/null | awk '$1 ~ /^ses_/ {print $1}')"; then
+        rm -rf "$scratch"
+        return 0
+    fi
+
+    for id in $ids; do
+        if grep -qx "$id" "$ledger"; then continue; fi
+        if oc_read session export "$id" --standalone >"$OC_ROOT/$id.json" 2>/dev/null \
+            && [ -s "$OC_ROOT/$id.json" ] \
+            && opencode session import "$OC_ROOT/$id.json" --directory "$DIR" >/dev/null 2>&1; then
+            printf '%s\n' "$id" >>"$ledger"
+            synced=$((synced + 1))
+        else
+            failed=$((failed + 1))
+        fi
+        rm -f "$OC_ROOT/$id.json"
+    done
+    rm -rf "$scratch"
+
+    # Only record the signature when every pending session made it across, so a
+    # failure gets retried on the next run instead of being skipped as current.
+    if [ "$failed" -eq 0 ] && [ -n "$sig" ]; then printf '%s\n' "$sig" >"$sig_file"; fi
+    [ "$failed" -eq 0 ] || echo "ag-sbx: $failed opencode session(s) not synced; will retry" >&2
+    [ "$synced" -eq 0 ] || echo "Synced $synced opencode session(s) into the host DB"
+    return 0
+}
+
+# `ag-sbx sync` is purely host-side: it reads the sandbox DB from the host,
+# so it needs neither Docker nor a running container.
+if $SYNC; then
+    sync_opencode
+    exit 0
 fi
 
 if $DRYRUN; then
@@ -152,8 +245,11 @@ sync_claude_credentials() {
 sync_claude_credentials
 
 # Containers pin their image at creation time, so build/deploy/update must
-# also drop the old container or the new image never gets used.
+# also drop the old container or the new image never gets used. Pull any
+# sandbox sessions out into the host DB first — the container's own opencode
+# data survives, but a stopped container can't be queried for them.
 if ! $DRYRUN && { $CLEAN || $BUILD || $UPDATE; } && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    sync_opencode
     echo "Removing container $CONTAINER_NAME for $DIR"
     docker rm -f "$CONTAINER_NAME" >/dev/null
 fi
@@ -162,12 +258,16 @@ if ! $DRYRUN && { $CLEAN || $BUILD || $UPDATE; } && [ -d "$STAGE_ROOT" ]; then
     rm -rf "$STAGE_ROOT"
 fi
 
-# Containers created before OC_DATA existed share the host opencode DB;
-# recreate them rather than reattach and keep corrupting it.
-if ! $DRYRUN && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME" && \
-    docker inspect -f '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' "$CONTAINER_NAME" | grep -qx "$HOME/.local/share/opencode"; then
-    echo "Recreating $CONTAINER_NAME: it shares the host opencode DB (corruption risk)"
-    docker rm -f "$CONTAINER_NAME" >/dev/null
+# Containers created before OC_DATA/OC_STATE existed mount the host's opencode
+# data dir (DB corruption) and/or state dir (the sandbox's service.json
+# clobbers the host's); recreate them rather than reattach.
+if ! $DRYRUN && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    oc_mounts="$(docker inspect -f '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' "$CONTAINER_NAME" 2>/dev/null || true)"
+    if printf '%s\n' "$oc_mounts" | grep -qx "$HOME/.local/share/opencode" || \
+        printf '%s\n' "$oc_mounts" | grep -qx "$HOME/.local/state/opencode"; then
+        echo "Recreating $CONTAINER_NAME: it shares the host opencode data/state dir"
+        docker rm -f "$CONTAINER_NAME" >/dev/null
+    fi
 fi
 
 if ! $DRYRUN && docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
@@ -228,16 +328,17 @@ else
     overlay_dir "$HOME/.commandcode/projects"     "$AGENT_HOME/.commandcode/projects"
     overlay_dir "$HOME/.commandcode/plans"        "$AGENT_HOME/.commandcode/plans"
     overlay_dir "$HOME/.commandcode/file-history" "$AGENT_HOME/.commandcode/file-history"
-    # opencode: global config read-only (writable copy staged below), state
-    # live rw (recent-model state). Data (sessions DB, snapshots) is
-    # per-container, see OC_DATA; auth.json is seeded from the host once.
+    # opencode: global config read-only (writable copy staged below). Data
+    # (sessions DB, snapshots) and state (service.json, recent-model state) are
+    # both per-container — see OC_DATA/OC_STATE. auth.json is seeded from the
+    # host on first create so the sandbox starts logged in.
     # Soft-created: opencode may never have run on the host yet.
-    mkdir -p "$HOME/.config/opencode" "$HOME/.local/state/opencode" "$OC_DATA"
-    chmod 700 "$OC_DATA"
+    mkdir -p "$HOME/.config/opencode" "$OC_DATA" "$OC_STATE"
+    chmod 700 "$OC_ROOT"
     [ -e "$OC_DATA/auth.json" ] || { [ -e "$HOME/.local/share/opencode/auth.json" ] && cp -p "$HOME/.local/share/opencode/auth.json" "$OC_DATA/auth.json"; } || true
     run_args+=(--mount "$(mount_read "$HOME/.config/opencode" "$AGENT_HOME/.config/opencode")")
-    run_args+=(--mount "$(mount "$OC_DATA" "$AGENT_HOME/.local/share/opencode")")
-    run_args+=(--mount "$(mount "$HOME/.local/state/opencode" "$AGENT_HOME/.local/state/opencode")")
+    run_args+=(--mount "$(mount "$OC_DATA"  "$AGENT_HOME/.local/share/opencode")")
+    run_args+=(--mount "$(mount "$OC_STATE" "$AGENT_HOME/.local/state/opencode")")
     # opencode-managed plugin install surface stays live so auto-install works.
     [ -d "$HOME/.config/opencode/node_modules" ] && \
         overlay_dir "$HOME/.config/opencode/node_modules" "$AGENT_HOME/.config/opencode/node_modules"
@@ -293,6 +394,8 @@ else
 fi
 
 # Run a non-interactive command if one was given (no TTY juggling needed).
+# No sync here: these are one-shot commands, and the interactive exit below
+# (or an explicit `ag-sbx sync`) is where sandbox sessions get pulled across.
 if [ "${#RUNCMD[@]}" -gt 0 ]; then
     exec docker exec "${TTY_FLAGS[@]}" -w "$DIR" "$CONTAINER_NAME" "${RUNCMD[@]}"
 fi
@@ -315,4 +418,9 @@ if [ -t 0 ] && [ -t 1 ]; then
 └──────────────────────────────────────────────────┘
 ";zsh'
 fi
-exec docker exec "${TTY_FLAGS[@]}" -w "$DIR" "$CONTAINER_NAME" sh -c "$SHELL_CMD"
+# Not `exec`: the sandbox shell exiting is the "run finished" moment, so pull
+# any opencode sessions created inside into the host DB before returning.
+docker exec "${TTY_FLAGS[@]}" -w "$DIR" "$CONTAINER_NAME" sh -c "$SHELL_CMD"
+status=$?
+sync_opencode
+exit "$status"
