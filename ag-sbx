@@ -164,37 +164,75 @@ sync_claude_credentials
 # keeps them uncorrupted — so sessions are transferred through opencode's
 # sanctioned export/import API rather than by sharing the files. Import runs on
 # the host, so the host's background service stays the only writer of its DB.
-# Session ids already synced are remembered in $OC_ROOT/synced-sessions, which
-# makes repeat runs cheap and idempotent (import preserves the session id).
+#
+# The export side reads a throwaway *copy* of the sandbox DB with the host's
+# opencode. Doing it on a copy keeps the host off the sandbox's live DB and its
+# locks, and using the host's opencode means sync doesn't depend on the
+# sandbox image: an older image ships an opencode too old to have
+# `session export`, but the host's can read its DB anyway.
+#
+# Session ids already synced are recorded in $OC_ROOT/synced-sessions, so
+# repeat runs are cheap and idempotent (import preserves the session id).
+db_sig() {  # cheap change-detector for a DB file
+    stat -f '%m-%z' "$1" 2>/dev/null || stat -c '%Y-%s' "$1" 2>/dev/null || echo ""
+}
 sync_opencode() {
     if $DRYRUN; then return 0; fi
-    docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME" || return 0
+    # No opencode was ever launched in this sandbox.
+    [ -e "$OC_DATA/opencode.db" ] || return 0
 
-    # No opencode in the image, or it was never launched in this sandbox.
-    docker exec -w "$DIR" "$CONTAINER_NAME" sh -c 'command -v opencode' >/dev/null 2>&1 || return 0
-
-    local ledger="$OC_ROOT/synced-sessions" ids id synced=0
+    local ledger="$OC_ROOT/synced-sessions" sig_file="$OC_ROOT/synced-signature"
+    local scratch="$OC_ROOT/.read" sig ids id synced=0 failed=0
     mkdir -p "$OC_ROOT"
     : >>"$ledger"
-    ids="$(docker exec -w "$DIR" "$CONTAINER_NAME" opencode session list 2>/dev/null \
-        | awk '$1 ~ /^ses_/ {print $1}')" || return 0
-    [ -n "$ids" ] || return 0
+
+    # Skip the copy entirely when nothing has written to the sandbox DB since a
+    # pass in which everything synced.
+    sig="$(db_sig "$OC_DATA/opencode.db")"
+    if [ -n "$sig" ] && [ -f "$sig_file" ] && [ "$(cat "$sig_file")" = "$sig" ]; then
+        return 0
+    fi
 
     if ! command -v opencode >/dev/null 2>&1; then
         echo "ag-sbx: host opencode not found — skipping session sync" >&2
         return 0
     fi
 
+    rm -rf "$scratch"
+    mkdir -p "$scratch/data/opencode" "$scratch/state" "$scratch/config"
+    for f in opencode.db opencode.db-wal opencode.db-shm; do
+        [ -e "$OC_DATA/$f" ] && cp "$OC_DATA/$f" "$scratch/data/opencode/$f"
+    done
+    # Read the copy as if it were this host's opencode data dir, so the host's
+    # own DB, config and background service stay untouched.
+    oc_read() {  # oc_read <args...>
+        env XDG_DATA_HOME="$scratch/data" XDG_STATE_HOME="$scratch/state" \
+            XDG_CONFIG_HOME="$scratch/config" opencode "$@"
+    }
+
+    if ! ids="$(oc_read session list --standalone 2>/dev/null | awk '$1 ~ /^ses_/ {print $1}')"; then
+        rm -rf "$scratch"
+        return 0
+    fi
+
     for id in $ids; do
         if grep -qx "$id" "$ledger"; then continue; fi
-        if docker exec -w "$DIR" "$CONTAINER_NAME" opencode session export "$id" >"$OC_ROOT/$id.json" 2>/dev/null \
+        if oc_read session export "$id" --standalone >"$OC_ROOT/$id.json" 2>/dev/null \
             && [ -s "$OC_ROOT/$id.json" ] \
             && opencode session import "$OC_ROOT/$id.json" --directory "$DIR" >/dev/null 2>&1; then
             printf '%s\n' "$id" >>"$ledger"
             synced=$((synced + 1))
+        else
+            failed=$((failed + 1))
         fi
         rm -f "$OC_ROOT/$id.json"
     done
+    rm -rf "$scratch"
+
+    # Only record the signature when every pending session made it across, so a
+    # failure gets retried on the next run instead of being skipped as current.
+    if [ "$failed" -eq 0 ] && [ -n "$sig" ]; then printf '%s\n' "$sig" >"$sig_file"; fi
+    [ "$failed" -eq 0 ] || echo "ag-sbx: $failed opencode session(s) not synced; will retry" >&2
     [ "$synced" -eq 0 ] || echo "Synced $synced opencode session(s) into the host DB"
     return 0
 }
