@@ -412,6 +412,8 @@ if [ -t 0 ] && [ -t 1 ]; then
 │  clauded │ claude --dangerously-skip-permissions │
 │  claudem │ claude via Command Code API (gomodel) │
 │  opy     │ opencode --yolo                       │
+│  cxy     │ codex (no approvals or sandbox)       │
+│  cpy     │ copilot --yolo                        │
 │  exit    │ Return to your host system            │
 └──────────────────────────────────────────────────┘
 ";zsh'

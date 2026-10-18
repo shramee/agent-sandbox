@@ -1,4 +1,4 @@
-# Generic agent sandbox: Node/Python/Go/Foundry toolchain + Claude Code,
+# Generic agent sandbox: Node/Python/Go/Rust/Foundry toolchain + Claude Code,
 # for running coding agents against whatever project directory gets mounted in.
 FROM nikolaik/python-nodejs:python3.14-nodejs26
 
@@ -9,7 +9,7 @@ ARG USER_NAME=agent
 ENV HOME="/home/${USER_NAME}" \
     PNPM_HOME="/home/${USER_NAME}/.local/share/pnpm" \
     GOPATH="/home/${USER_NAME}/go"
-ENV PATH="$PNPM_HOME/bin:$GOPATH/bin:${HOME}/.local/bin:${HOME}/.foundry/bin:/usr/local/go/bin:${PATH}"
+ENV PATH="$PNPM_HOME/bin:$GOPATH/bin:${HOME}/.local/bin:${HOME}/.opencode/bin:${HOME}/.foundry/bin:/usr/local/go/bin:${PATH}"
 
 # --- Install base dependencies ---
 RUN apt-get update && apt-get install -y \
@@ -31,11 +31,18 @@ RUN corepack enable \
     && corepack prepare pnpm@latest --activate \
     && pnpm i -g command-code@latest
 
+# --- Codex CLI + GitHub Copilot CLI ---
+# npm rather than pnpm: both ship platform binaries via postinstall scripts, and
+# pnpm 10 blocks dependency build scripts unless explicitly allowed.
+RUN npm i -g @openai/codex@latest @github/copilot@latest
+
 # --- Claude Code CLI (from the official installer) ---
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
-# --- opencode CLI (official binary installer, already on PATH, no rc edits) ---
-RUN curl -fsSL https://opencode.ai/install | OPENCODE_INSTALL_DIR=/usr/local/bin bash -s -- --no-modify-path
+# --- opencode CLI (official binary installer; it hardcodes the install dir to
+# ${HOME}/.opencode/bin — OPENCODE_INSTALL_DIR is no longer honored — so that
+# dir is added to PATH above) ---
+RUN curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
 
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
 
@@ -68,11 +75,21 @@ RUN echo "${USER_NAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 USER ${USER_NAME}
 WORKDIR ${HOME}
 
+# --- Rust (rustup, stable) for Rust/Stylus projects ---
+# Installed as the agent user so the toolchain lands in ${HOME}/.cargo and
+# ${HOME}/.rustup instead of root's home. --no-modify-path keeps the PATH edit
+# in this Dockerfile rather than in a shell rc file, matching Go/Foundry above.
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path \
+        --profile minimal --default-toolchain stable \
+    && "${HOME}/.cargo/bin/rustup" component add rustfmt clippy \
+    && rm -rf "${HOME}/.cargo/registry/cache" "${HOME}/.cargo/registry/src"
+ENV PATH="${HOME}/.cargo/bin:${PATH}"
+
 # Set up a default .zshrc if one isn't mounted, to ensure login works
 RUN printf 'export ZSH="/home/%s/.oh-my-zsh"\n\nZSH_THEME="robbyrussell"\n\nplugins=(git)\n\nsource $ZSH/oh-my-zsh.sh\n' "${USER_NAME}" > /home/${USER_NAME}/.zshrc-default
 
 # Agent sandbox aliases
-RUN printf '#!/bin/zsh\n\nalias cmdy="command-code --yolo --no-onboarding"\nalias clauded="claude --dangerously-skip-permissions"\nalias claudem="claude-gomodel --dangerously-skip-permissions"\nalias opy="opencode --yolo"\n' > /home/${USER_NAME}/.oh-my-zsh/custom/aliases.zsh
+RUN printf '#!/bin/zsh\n\nalias cmdy="command-code --yolo --no-onboarding"\nalias clauded="claude --dangerously-skip-permissions"\nalias claudem="claude-gomodel --dangerously-skip-permissions"\nalias opy="opencode --yolo"\nalias cxy="codex --dangerously-bypass-approvals-and-sandbox"\nalias cpy="copilot --yolo"\n' > /home/${USER_NAME}/.oh-my-zsh/custom/aliases.zsh
 
 # Keep the container running
 CMD ["sleep", "infinity"]
