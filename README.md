@@ -1,8 +1,8 @@
 # Agent sandbox container
 
 A sandboxed dev container for coding agents: Node/Python/Go/Rust/Foundry
-toolchain plus the Claude Code CLI, opencode, and rtk, ready to bind-mount a
-project directory into.
+toolchain plus the Claude Code, Command Code, opencode, Codex and Copilot
+CLIs, and rtk, ready to bind-mount a project directory into.
 
 Source & Dockerfile: https://github.com/shramee/agent-sandbox
 
@@ -17,17 +17,21 @@ Source & Dockerfile: https://github.com/shramee/agent-sandbox
 | **Rust**         | stable via rustup (`~/.cargo`), with rustfmt + clippy |
 | **Foundry**      | Solidity toolchain (`forge`, `cast`, `anvil`) |
 | **Claude Code**  | Installed via the official installer (stable) |
+| **Codex**        | Installed globally via npm (`@openai/codex@latest`) |
 | **Command Code** | Installed globally via pnpm (`command-code@latest`) |
+| **Copilot**      | Installed globally via npm (`@github/copilot@latest`) |
 | **GoModel**      | AI gateway serving Anthropic-compatible API (see `claude-gomodel`) |
-| **opencode**     | Installed via the official binary installer (`/usr/local/bin`) |
+| **opencode**     | Installed via the official binary installer (`~/.opencode/bin`) |
 | **rtk**          | Installed via the official curl installer     |
 | **Sudo**         | Passwordless for the `agent` user (UID 1001)  |
 
 Handy aliases baked into the shell:
 - `cmdy` (`command-code --yolo --no-onboarding`),
 - `clauded` (`claude --dangerously-skip-permissions`),
-- `claudem` (`claude-gomodel --dangerously-skip-permissions`) and,
-- `opy` (`opencode --yolo`).
+- `claudem` (`claude-gomodel --dangerously-skip-permissions`),
+- `opy` (`opencode --yolo`),
+- `cxy` (`codex --dangerously-bypass-approvals-and-sandbox`) and,
+- `cpy` (`copilot --yolo`).
 
 ### `claudem` — Claude Code via the Command Code API
 
@@ -75,8 +79,8 @@ ag-sbx deploy   # on the machine with the changes: build + push
 ag-sbx update   # everywhere else: pull the new image, recreate the container
 ```
 
-The image bundles a Node/Python/Go/Rust/Foundry toolchain plus the Claude Code
-CLI, opencode, and rtk (see `Dockerfile`).
+The image bundles a Node/Python/Go/Rust/Foundry toolchain plus the Claude Code,
+Command Code, opencode, Codex and Copilot CLIs, and rtk (see `Dockerfile`).
 
 ```sh
 # 1. Install
